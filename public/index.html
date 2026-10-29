@@ -1,1 +1,55 @@
-<!doctype html><title>Twig</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twig Chemistry</title>
+  <link rel="icon" href="/assets/twig-mark.jpg">
+  <link rel="stylesheet" href="/assets/twig.css">
+  <script src="/config.js"></script>
+  <script src="/assets/clerk-loader.js"></script>
+  <script src="/assets/portal.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/"><img src="/assets/twig-logo.png" alt="Twig Learning Center"></a>
+    <div class="who" id="who" hidden>
+      <span id="who-name"></span>
+      <a id="admin-link" class="btn ghost small" href="/admin" hidden>Admin</a>
+      <button class="btn ghost small" id="sign-out">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="spinner" id="loading" aria-label="Loading"></div>
+    <div id="message"></div>
+
+    <section class="hero" id="signed-out" hidden>
+      <div>
+        <span class="tag">WE'VE GOT CHEMISTRY!</span>
+        <h1>All your Twig chemistry apps, one sign in.</h1>
+        <p>Practise Paper 1 under timed conditions, build topical worksheets, get feedback on your scripts, and more. Sign in with Google or your email to start.</p>
+      </div>
+      <div id="sign-in"></div>
+    </section>
+
+    <section id="signed-in" hidden>
+      <div class="greeting">
+        <h1 id="hello"></h1>
+        <p><span class="badge" id="role-badge"></span> <span id="role-text"></span></p>
+      </div>
+
+      <form class="code-box card" id="code-form" hidden>
+        <div style="flex: 1 1 260px">
+          <strong>Twig student?</strong>
+          <div class="muted small">Enter the code from your teacher to unlock every app.</div>
+        </div>
+        <input id="code" name="code" placeholder="ABCD-EFGH" autocomplete="off" maxlength="40" required aria-label="Student code">
+        <button class="btn" type="submit">Unlock</button>
+      </form>
+
+      <div class="tiles" id="tiles"></div>
+    </section>
+  </main>
+</body>
+</html>

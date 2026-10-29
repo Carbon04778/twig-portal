@@ -40,10 +40,14 @@ export async function createApp(opts: { identify?: IdentityProvider } = {}) {
   app.use("/api", userApi);
   app.use("/api/admin", adminApi);
 
-  // Public config for the page: the Clerk publishable key (safe to expose).
+  // Public config for the pages: the Clerk publishable key (safe to expose) and, in production,
+  // the proxy path Clerk is reached through (the proxy only runs in production).
   app.get("/config.js", (_req, res) => {
     res.type("application/javascript").setHeader("Cache-Control", "no-store");
-    res.send(`window.TWIG = ${JSON.stringify({ clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? null })};`);
+    res.send(`window.TWIG = ${JSON.stringify({
+      clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? null,
+      clerkProxyPath: process.env.NODE_ENV === "production" ? "/api/__clerk" : null,
+    })};`);
   });
   app.use(express.static(publicDir, { extensions: ["html"], index: "index.html" }));
   app.get("/admin", (_req, res) => res.sendFile(path.join(publicDir, "admin.html")));

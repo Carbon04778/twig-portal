@@ -118,6 +118,15 @@ describe("portal", () => {
     assert.equal(list.body.data.find((a: any) => a.id === "paper1").hasSecret, true);
   });
 
+  test("pages and assets are served", async () => {
+    for (const [p, text] of [["/", "one sign in"], ["/admin", "Student codes"], ["/assets/portal.js", "mountSignIn"], ["/config.js", "clerkPublishableKey"]] as const) {
+      const r = await fetch(`${base}${p}`);
+      assert.equal(r.status, 200, p);
+      assert.ok((await r.text()).includes(text), `${p} contains "${text}"`);
+    }
+    assert.equal((await fetch(`${base}/assets/twig-logo.png`)).headers.get("content-type"), "image/png");
+  });
+
   test("a new user is public and sees only the public app", async () => {
     assert.equal((await call("/api/me", null)).status, 401);
     const me = await call("/api/me", AMY);
@@ -185,6 +194,56 @@ describe("portal", () => {
     assert.deepEqual([ok.body.user.email, ok.body.user.role], ["amy@example.com", "student"]);
     const again = await post("/api/apps/exchange", null, { app_id: "paper1", code }, { "x-app-secret": paper1Secret });
     assert.equal(again.body.error, "invalid_or_expired_code", "single use");
+  });
+
+  test("connector: an app signs users in through the portal with portalAuth.ts", async () => {
+    // A stand-in app server wired exactly as the README tells each app to do it.
+    const express = (await import("express")).default;
+    const fake = express();
+    const fakeHttp = fake.listen(0);
+    await new Promise((r) => fakeHttp.once("listening", r));
+    const fakeBase = `http://127.0.0.1:${(fakeHttp.address() as { port: number }).port}`;
+    try {
+      await post("/api/admin/apps", DONNELL, { id: "fakeapp", name: "Fake app", url: fakeBase });
+      const secret = (await post("/api/admin/apps/fakeapp/secret", DONNELL, {})).body.data.secret;
+      process.env.PORTAL_URL = base;
+      process.env.PORTAL_APP_ID = "fakeapp";
+      process.env.PORTAL_APP_SECRET = secret;
+      const { portalRoutes, portalSession, requirePortalUser } = await import("../connector/portalAuth.js");
+      fake.use(portalSession);
+      fake.use("/api/portal", portalRoutes);
+      fake.use("/api", requirePortalUser({ allow: ["/healthz"] }));
+      fake.get("/api/healthz", (_req, res) => { res.json({ ok: true }); });
+      fake.get("/api/data", (_req, res) => { res.json({ hello: res.locals.portalUser.email, role: res.locals.portalUser.role }); });
+
+      // Signed out: the app's API says where to sign in.
+      const anon = await fetch(`${fakeBase}/api/data`);
+      assert.equal(anon.status, 401);
+      assert.equal((await anon.json() as any).portalUrl, `${base}/launch/fakeapp`);
+      assert.equal((await fetch(`${fakeBase}/api/healthz`)).status, 200, "allow-listed route stays open");
+
+      // Ben (public) can't open a students-only app; Donnell (admin) can.
+      assert.equal((await call("/launch/fakeapp", BEN)).location, "/?denied=fakeapp");
+      const go = await call("/launch/fakeapp", DONNELL);
+      const cb = await fetch(go.location!, { redirect: "manual" });
+      assert.equal(cb.status, 303);
+      assert.equal(cb.headers.get("location"), "/");
+      const cookie = cb.headers.get("set-cookie")!.split(";")[0]!;
+      assert.match(cookie, /^twig_portal=/);
+
+      const data = await fetch(`${fakeBase}/api/data`, { headers: { cookie } });
+      assert.deepEqual(await data.json(), { hello: "donnellkoh@gmail.com", role: "admin" });
+      const me = await fetch(`${fakeBase}/api/portal/me`, { headers: { cookie } });
+      assert.equal((await me.json() as any).user.email, "donnellkoh@gmail.com");
+
+      // A tampered cookie is rejected; reusing the launch code fails.
+      const forged = cookie.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+      assert.equal((await fetch(`${fakeBase}/api/data`, { headers: { cookie: forged } })).status, 401);
+      const reuse = await fetch(go.location!, { redirect: "manual" });
+      assert.equal(reuse.status, 400);
+    } finally {
+      fakeHttp.close();
+    }
   });
 
   test("admin can revoke, downgrade, and override access per app", async () => {

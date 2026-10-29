@@ -11,5 +11,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src", "tests", "drizzle.config.ts"]
+  "include": ["src", "tests", "connector/portalAuth.ts", "drizzle.config.ts"]
 }

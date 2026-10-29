@@ -1,1 +1,86 @@
-<!doctype html><title>Twig admin</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twig Admin</title>
+  <link rel="icon" href="/assets/twig-mark.jpg">
+  <link rel="stylesheet" href="/assets/twig.css">
+  <script src="/config.js"></script>
+  <script src="/assets/clerk-loader.js"></script>
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/"><img src="/assets/twig-logo.png" alt="Twig Learning Center"></a>
+    <div class="who"><span id="who-name"></span><a class="btn ghost small" href="/">Back to apps</a></div>
+  </header>
+  <main>
+    <div class="spinner" id="loading" aria-label="Loading"></div>
+    <div id="message"></div>
+
+    <section id="admin" hidden>
+      <h1 style="margin:0;color:var(--navy)">Admin</h1>
+      <nav class="tabs" role="tablist">
+        <button data-tab="users" class="active">Users</button>
+        <button data-tab="codes">Student codes</button>
+        <button data-tab="apps">Apps</button>
+        <button data-tab="activity">Activity</button>
+      </nav>
+
+      <!-- Users -->
+      <div id="tab-users">
+        <form class="row" id="user-filters">
+          <input name="q" placeholder="Search name or email" aria-label="Search">
+          <select name="role" aria-label="Role"><option value="">All roles</option><option value="public">Free</option><option value="student">Student</option><option value="admin">Admin</option></select>
+          <select name="status" aria-label="Status"><option value="">Active and revoked</option><option value="active">Active</option><option value="revoked">Revoked</option></select>
+          <button class="btn small">Search</button>
+          <span class="muted small" id="user-count"></span>
+        </form>
+        <table><thead><tr><th>User</th><th>Access</th><th>App exceptions</th><th>Last seen</th><th></th></tr></thead><tbody id="users"></tbody></table>
+      </div>
+
+      <!-- Student codes -->
+      <div id="tab-codes" hidden>
+        <form class="card" id="code-form" style="margin-bottom:18px">
+          <strong>New student code</strong>
+          <p class="muted small" style="margin:4px 0 12px">Give the code to your students. Entering it turns a free account into a student account.</p>
+          <div class="form-grid">
+            <label>Label<input name="label" placeholder="e.g. 2027 J2 class" maxlength="100"></label>
+            <label>Own code (optional)<input name="code" placeholder="random if empty" maxlength="40"></label>
+            <label>Max uses (optional)<input name="max_uses" type="number" min="1" placeholder="unlimited"></label>
+            <label>Expires (optional)<input name="expires_at" type="date"></label>
+          </div>
+          <div class="row" style="margin:12px 0 0"><button class="btn">Create code</button></div>
+        </form>
+        <table><thead><tr><th>Code</th><th>Label</th><th>Used</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody id="codes"></tbody></table>
+        <div id="redemptions"></div>
+      </div>
+
+      <!-- Apps -->
+      <div id="tab-apps" hidden>
+        <p class="muted">Students and admins can open every app that is switched on. Free users can open only the apps marked <strong>Free</strong>.</p>
+        <table><thead><tr><th>App</th><th>Address</th><th>Free</th><th>On</th><th>Connection</th><th></th></tr></thead><tbody id="apps"></tbody></table>
+        <div id="secret-box"></div>
+        <details class="card" style="margin-top:18px">
+          <summary><strong>Add an app</strong></summary>
+          <form id="app-form" class="form-grid" style="margin-top:12px">
+            <label>ID (short, lowercase)<input name="id" required pattern="[a-z0-9-]{2,40}" placeholder="paper1"></label>
+            <label>Name<input name="name" required maxlength="100"></label>
+            <label>Address<input name="url" required type="url" placeholder="https://….replit.app"></label>
+            <label>Description<input name="description" maxlength="300"></label>
+            <label>Order<input name="sort_order" type="number" value="0"></label>
+            <label class="check"><input type="checkbox" name="public_access"> Free for everyone</label>
+            <div><button class="btn">Add app</button></div>
+          </form>
+        </details>
+      </div>
+
+      <!-- Activity -->
+      <div id="tab-activity" hidden>
+        <table><thead><tr><th>When</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody id="activity"></tbody></table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
