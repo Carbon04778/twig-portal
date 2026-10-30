@@ -1,6 +1,7 @@
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { ZodError } from "zod";
+import { isProduction } from "./env.js";
 import { clerkIdentity, type IdentityProvider } from "./auth/identity.js";
 import { adminApi } from "./routes/admin.js";
 import { appApi, launch, loadUser, userApi } from "./routes/portal.js";
@@ -42,11 +43,24 @@ export async function createApp(opts: { identify?: IdentityProvider } = {}) {
 
   // Public config for the pages: the Clerk publishable key (safe to expose) and, in production,
   // the proxy path Clerk is reached through (the proxy only runs in production).
-  app.get("/config.js", (_req, res) => {
+  // The key is derived from the site's host exactly as the server's clerkMiddleware does
+  // (Replit-managed Clerk: a development key is used as-is; in production the key comes
+  // from the published domain), so the browser and server always use the same Clerk instance.
+  app.get("/config.js", async (req, res) => {
+    let clerkPublishableKey: string | null = null;
+    let useProxy = false;
+    const envKey = process.env.CLERK_PUBLISHABLE_KEY;
+    if (envKey) {
+      const { publishableKeyFromHost, isDevelopmentFromPublishableKey } = await import("@clerk/shared/keys");
+      const { getClerkProxyHost } = await import("./auth/clerkProxy.js");
+      clerkPublishableKey = publishableKeyFromHost(getClerkProxyHost(req) ?? "", envKey);
+      // Clerk development instances can't be proxied; only production keys go through it.
+      useProxy = isProduction() && !isDevelopmentFromPublishableKey(clerkPublishableKey);
+    }
     res.type("application/javascript").setHeader("Cache-Control", "no-store");
     res.send(`window.TWIG = ${JSON.stringify({
-      clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? null,
-      clerkProxyPath: process.env.NODE_ENV === "production" ? "/api/__clerk" : null,
+      clerkPublishableKey,
+      clerkProxyPath: useProxy ? "/api/__clerk" : null,
     })};`);
   });
   app.use(express.static(publicDir, { extensions: ["html"], index: "index.html" }));

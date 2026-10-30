@@ -26,5 +26,9 @@ export function env(): Env {
   return cached;
 }
 
+// True on the published Replit deployment (Replit sets REPLIT_DEPLOYMENT=1 there; NODE_ENV is
+// not set by our run command) or when NODE_ENV=production is set explicitly.
+export const isProduction = () => process.env.NODE_ENV === "production" || process.env.REPLIT_DEPLOYMENT === "1";
+
 export const adminEmails = () =>
   new Set(env().ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean));

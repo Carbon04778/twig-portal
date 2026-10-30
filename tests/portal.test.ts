@@ -127,6 +127,31 @@ describe("portal", () => {
     assert.equal((await fetch(`${base}/assets/twig-logo.png`)).headers.get("content-type"), "image/png");
   });
 
+  test("config.js: same Clerk key as the server; proxy only for production keys on the deployment", async () => {
+    const config = async () => {
+      const text = await (await fetch(`${base}/config.js`)).text();
+      return JSON.parse(text.replace(/^window\.TWIG = /, "").replace(/;$/, ""));
+    };
+    const saved = { key: process.env.CLERK_PUBLISHABLE_KEY, dep: process.env.REPLIT_DEPLOYMENT };
+    try {
+      const devKey = `pk_test_${Buffer.from("example-dev.clerk.accounts.dev$").toString("base64")}`;
+      process.env.CLERK_PUBLISHABLE_KEY = devKey;
+      process.env.REPLIT_DEPLOYMENT = "1";
+      assert.deepEqual(await config(), { clerkPublishableKey: devKey, clerkProxyPath: null }, "dev key: used as-is, never proxied");
+
+      process.env.CLERK_PUBLISHABLE_KEY = `pk_live_${Buffer.from("clerk.example.com$").toString("base64")}`;
+      const live = await config();
+      assert.equal(Buffer.from(live.clerkPublishableKey.split("_")[2], "base64").toString(), "clerk.127.0.0.1$", "derived from the host");
+      assert.equal(live.clerkProxyPath, "/api/__clerk");
+
+      delete process.env.REPLIT_DEPLOYMENT;
+      assert.equal((await config()).clerkProxyPath, null, "not on the deployment: no proxy");
+    } finally {
+      if (saved.key === undefined) delete process.env.CLERK_PUBLISHABLE_KEY; else process.env.CLERK_PUBLISHABLE_KEY = saved.key;
+      if (saved.dep === undefined) delete process.env.REPLIT_DEPLOYMENT; else process.env.REPLIT_DEPLOYMENT = saved.dep;
+    }
+  });
+
   test("a new user is public and sees only the public app", async () => {
     assert.equal((await call("/api/me", null)).status, 401);
     const me = await call("/api/me", AMY);
