@@ -39,7 +39,10 @@
         loadScript(`${host}/npm/@clerk/clerk-js@${CLERK_JS_VERSION}/dist/clerk.browser.js`, { ...attrs, "data-clerk-js-script": "true" }),
         loadScript(`${host}/npm/@clerk/ui@${CLERK_UI_VERSION}/dist/ui.browser.js`, { ...attrs, "data-clerk-ui-script": "true" }),
       ]);
+      // The ui script defines the components class; Clerk only builds sign-in/sign-up from it
+      // when it is passed here (otherwise mountSignIn throws "not loaded with Ui components").
       await window.Clerk.load({
+        ui: { ClerkUI: window.__internal_ClerkUICtor },
         appearance: {
           variables: { colorPrimary: "#273661", colorText: "#1c2747", colorBackground: "#fffdf8", fontFamily: "Outfit, system-ui, sans-serif", borderRadius: "12px" },
         },
