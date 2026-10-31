@@ -67,20 +67,39 @@ function userRow(u) {
   }, ...(isAdmin ? [el("option", { selected: true }, "Admin")] : ["public", "student"].map((r) =>
     el("option", { value: r, selected: u.role === r }, ROLE_LABEL[r]))));
 
-  const exceptions = el("div", { class: "small" });
-  for (const a of appsCache) {
-    const v = u.appOverrides?.[a.id];
-    exceptions.append(el("div", {}, `${a.name}: `, el("select", {
-      "aria-label": `${a.name} access`, disabled: isAdmin,
-      onchange: async (e) => {
-        const allowed = e.target.value === "" ? null : e.target.value === "allow";
-        await api(`/users/${u.id}/apps/${a.id}`, { method: "PUT", body: { allowed } });
-        toast("Saved");
+  // Per-app exceptions: a one-line summary, with a tidy list behind a "Change" button.
+  // Admins always open every app, so they get no controls.
+  const overrides = u.appOverrides ?? {};
+  const nameOf = (id) => appsCache.find((a) => a.id === id)?.name ?? id;
+  const blocked = Object.keys(overrides).filter((id) => overrides[id] === false).map(nameOf);
+  const allowed = Object.keys(overrides).filter((id) => overrides[id] === true).map(nameOf);
+  const summary = [blocked.length ? `Blocked: ${blocked.join(", ")}` : "", allowed.length ? `Always allowed: ${allowed.join(", ")}` : ""]
+    .filter(Boolean).join(" · ") || "None";
+
+  let exceptions;
+  if (isAdmin) {
+    exceptions = el("span", { class: "muted small" }, "All apps (admin)");
+  } else {
+    const list = el("div", { class: "exceptions", hidden: true });
+    for (const a of appsCache) {
+      const v = overrides[a.id];
+      list.append(el("span", {}, a.name), el("select", {
+        "aria-label": `${a.name} access`,
+        onchange: async (e) => {
+          const allowed = e.target.value === "" ? null : e.target.value === "allow";
+          await api(`/users/${u.id}/apps/${a.id}`, { method: "PUT", body: { allowed } });
+          toast("Saved");
+          loadUsers();
+        },
       },
-    },
-    el("option", { value: "", selected: v === undefined }, "normal"),
-    el("option", { value: "allow", selected: v === true }, "always allow"),
-    el("option", { value: "block", selected: v === false }, "block"))));
+      el("option", { value: "", selected: v === undefined }, "Normal"),
+      el("option", { value: "allow", selected: v === true }, "Always allow"),
+      el("option", { value: "block", selected: v === false }, "Block")));
+    }
+    exceptions = el("div", { class: "small" },
+      el("span", {}, summary), " ",
+      el("button", { class: "btn small ghost", onclick: () => { list.hidden = !list.hidden; } }, "Change"),
+      list);
   }
 
   const revoked = u.status === "revoked";
