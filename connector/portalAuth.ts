@@ -119,6 +119,22 @@ export function requirePortalUser(opts: { allow?: string[] } = {}) {
   };
 }
 
+// Restrict a route to some roles, e.g. router.post("/x", requirePortalRole("admin"), handler).
+export function requirePortalRole(...roles: PortalUser["role"][]) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const user = res.locals.portalUser as PortalUser | undefined;
+    if (!user) {
+      res.status(401).json({ error: "portal_sign_in_required", portalUrl: portalLaunchUrl() });
+      return;
+    }
+    if (!roles.includes(user.role)) {
+      res.status(403).json({ error: "not_allowed", message: "Only Twig admins can do this." });
+      return;
+    }
+    next();
+  };
+}
+
 export const portalRoutes = Router();
 
 // The portal redirects here with ?code=...; swap it for the user, start the session.
