@@ -105,6 +105,8 @@ $("sign-out").addEventListener("click", async () => {
   } catch (err) {
     console.error(err);
   }
+  const onAuthPage = /^\/sign-(in|up)(\/|$)/.test(location.pathname);
+  if (clerk?.user && onAuthPage) return location.replace(safeNext() ?? "/");
   if (clerk?.user || !clerk) {
     // Signed in (or no Clerk configured, e.g. tests): ask the server who we are.
     const shown = await loadMe();
@@ -114,6 +116,11 @@ $("sign-out").addEventListener("click", async () => {
   if (!clerk) return showMessage("Sign in is not set up yet. Please try again later.", "error");
   $("signed-out").hidden = false;
   const redirect = safeNext() ?? "/";
-  clerk.mountSignIn($("sign-in"), { forceRedirectUrl: redirect, signUpForceRedirectUrl: redirect });
+  // Clerk routes inside the box with the URL hash (#/...), so the path only picks the box.
+  if (location.pathname.startsWith("/sign-up")) {
+    clerk.mountSignUp($("sign-in"), { forceRedirectUrl: redirect, signInForceRedirectUrl: redirect, signInUrl: "/sign-in" });
+  } else {
+    clerk.mountSignIn($("sign-in"), { forceRedirectUrl: redirect, signUpForceRedirectUrl: redirect, signUpUrl: "/sign-up" });
+  }
   clerk.addListener(({ user }) => { if (user) location.replace(redirect); });
 })();

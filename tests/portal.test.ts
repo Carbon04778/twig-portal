@@ -119,7 +119,7 @@ describe("portal", () => {
   });
 
   test("pages and assets are served", async () => {
-    for (const [p, text] of [["/", "one sign in"], ["/admin", "Student codes"], ["/assets/portal.js", "mountSignIn"], ["/config.js", "clerkPublishableKey"]] as const) {
+    for (const [p, text] of [["/", "one sign in"], ["/sign-in", "one sign in"], ["/sign-up/continue", "one sign in"], ["/admin", "Student codes"], ["/assets/portal.js", "mountSignIn"], ["/config.js", "clerkPublishableKey"]] as const) {
       const r = await fetch(`${base}${p}`);
       assert.equal(r.status, 200, p);
       assert.ok((await r.text()).includes(text), `${p} contains "${text}"`);

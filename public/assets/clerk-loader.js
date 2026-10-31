@@ -43,6 +43,12 @@
       // when it is passed here (otherwise mountSignIn throws "not loaded with Ui components").
       await window.Clerk.load({
         ui: { ClerkUI: window.__internal_ClerkUICtor },
+        // Where Clerk sends people for sign-in/sign-up steps (served by the portal page).
+        signInUrl: "/sign-in",
+        signUpUrl: "/sign-up",
+        signInFallbackRedirectUrl: "/",
+        signUpFallbackRedirectUrl: "/",
+        afterSignOutUrl: "/",
         appearance: {
           variables: { colorPrimary: "#273661", colorText: "#1c2747", colorBackground: "#fffdf8", fontFamily: "Outfit, system-ui, sans-serif", borderRadius: "12px" },
         },

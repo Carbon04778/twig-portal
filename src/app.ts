@@ -65,6 +65,11 @@ export async function createApp(opts: { identify?: IdentityProvider } = {}) {
   });
   app.use(express.static(publicDir, { extensions: ["html"], index: "index.html" }));
   app.get("/admin", (_req, res) => res.sendFile(path.join(publicDir, "admin.html")));
+  // Clerk's hosted flows (e.g. the step after Google sign-in) return to /sign-in and /sign-up,
+  // the paths Replit's Clerk setup uses; serve the portal page there so its sign-in box handles them.
+  app.get(["/sign-in", "/sign-in/*rest", "/sign-up", "/sign-up/*rest"], (_req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
 
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
