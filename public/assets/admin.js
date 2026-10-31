@@ -159,8 +159,22 @@ async function loadApps() {
   appsCache = (await api("/apps")).data;
   $("apps").replaceChildren(...appsCache.map((a) => {
     const patch = async (body) => { await api(`/apps/${a.id}`, { method: "PATCH", body }); toast("Saved"); loadApps(); };
+    const edit = async () => {
+      const name = prompt("App name", a.name);
+      if (name === null) return;
+      const description = prompt("Short description (shown on the tile)", a.description);
+      if (description === null) return;
+      const url = prompt("Address (https://….replit.app)", a.url);
+      if (url === null) return;
+      await patch({ name: name.trim(), description: description.trim(), url: url.trim() });
+    };
     return el("tr", { class: a.enabled ? "" : "dim" },
-      el("td", {}, el("strong", {}, a.name), el("div", { class: "muted small" }, a.id), el("div", { class: "small" }, a.description)),
+      el("td", {}, el("input", {
+        type: "number", value: a.sortOrder, style: "width:4.5em", "aria-label": "Order",
+        onchange: (e) => patch({ sort_order: Number(e.target.value) || 0 }),
+      })),
+      el("td", {}, el("strong", {}, a.name), el("div", { class: "muted small" }, a.id), el("div", { class: "small" }, a.description),
+        el("button", { class: "btn small ghost", style: "margin-top:6px", onclick: edit }, "Edit")),
       el("td", { class: "small" }, el("a", { href: a.url, target: "_blank", rel: "noopener" }, a.url.replace(/^https:\/\//, ""))),
       el("td", {}, el("input", { type: "checkbox", checked: a.publicAccess, "aria-label": "Free for everyone", onchange: (e) => patch({ public_access: e.target.checked }) })),
       el("td", {}, el("input", { type: "checkbox", checked: a.enabled, "aria-label": "Switched on", onchange: (e) => patch({ enabled: e.target.checked }) })),
@@ -179,7 +193,7 @@ async function loadApps() {
         },
       }, a.hasSecret ? "New secret" : "Connect")));
   }));
-  if (!appsCache.length) $("apps").append(el("tr", {}, el("td", { colspan: 6, class: "muted" }, "No apps yet. Add one below.")));
+  if (!appsCache.length) $("apps").append(el("tr", {}, el("td", { colspan: 7, class: "muted" }, "No apps yet. Add one below.")));
 }
 
 $("app-form").addEventListener("submit", async (e) => {

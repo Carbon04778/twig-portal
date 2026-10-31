@@ -132,16 +132,27 @@ adminApi.get("/apps", async (_req, res) => {
 
 const httpsUrl = z.url().refine((u) => /^https:\/\//.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(u),
   "must be https (http only for localhost)");
-const appBody = z.object({
-  id: z.string().regex(/^[a-z0-9-]{2,40}$/, "lowercase letters, digits and dashes"),
+// Fields without defaults: edits (PATCH) must only change what was sent. zod applies
+// .default() even inside .partial(), which would reset every unsent field.
+const appFields = {
   name: z.string().trim().min(1).max(100),
-  description: z.string().trim().max(300).default(""),
+  description: z.string().trim().max(300),
   url: httpsUrl,
-  callback_path: z.string().regex(/^\/[^\s]*$/).default("/api/portal/callback"),
-  public_access: z.boolean().default(false),
-  enabled: z.boolean().default(true),
-  sort_order: z.number().int().default(0),
+  callback_path: z.string().regex(/^\/[^\s]*$/),
+  public_access: z.boolean(),
+  enabled: z.boolean(),
+  sort_order: z.number().int(),
+};
+const appBody = z.object({
+  ...appFields,
+  id: z.string().regex(/^[a-z0-9-]{2,40}$/, "lowercase letters, digits and dashes"),
+  description: appFields.description.default(""),
+  callback_path: appFields.callback_path.default("/api/portal/callback"),
+  public_access: appFields.public_access.default(false),
+  enabled: appFields.enabled.default(true),
+  sort_order: appFields.sort_order.default(0),
 });
+const appPatch = z.object(appFields).partial();
 adminApi.post("/apps", async (req, res) => {
   const b = appBody.parse(req.body);
   const [row] = await db.insert(apps).values({
@@ -154,7 +165,7 @@ adminApi.post("/apps", async (req, res) => {
 });
 
 adminApi.patch("/apps/:id", async (req, res) => {
-  const b = appBody.omit({ id: true }).partial().parse(req.body);
+  const b = appPatch.parse(req.body);
   const [row] = await db.update(apps).set({
     name: b.name, description: b.description, url: b.url, callbackPath: b.callback_path,
     publicAccess: b.public_access, enabled: b.enabled, sortOrder: b.sort_order,

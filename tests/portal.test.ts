@@ -110,6 +110,14 @@ describe("portal", () => {
     assert.equal((await post("/api/admin/apps", DONNELL, { id: "paper1", name: "x", url: "https://x.replit.app" })).status, 409);
     assert.equal((await post("/api/admin/apps", DONNELL, { id: "bad", name: "x", url: "http://evil.example" })).status, 400, "https only");
 
+    // Changing one switch must leave every other setting alone.
+    await post("/api/admin/apps", DONNELL, { id: "keepme", name: "Keep", url: "https://keep.replit.app", description: "My app", public_access: true, sort_order: 7 });
+    await call("/api/admin/apps/keepme", DONNELL, { method: "PATCH", body: JSON.stringify({ enabled: false }) });
+    const kept = (await call("/api/admin/apps", DONNELL)).body.data.find((a: any) => a.id === "keepme");
+    assert.deepEqual([kept.enabled, kept.description, kept.publicAccess, kept.sortOrder, kept.callbackPath],
+      [false, "My app", true, 7, "/api/portal/callback"]);
+    // (left switched off, so it doesn't appear as a tile in the later tests)
+
     const s = await post("/api/admin/apps/paper1/secret", DONNELL, {});
     paper1Secret = s.body.data.secret;
     assert.match(paper1Secret, /^tps_/);
@@ -119,7 +127,7 @@ describe("portal", () => {
   });
 
   test("pages and assets are served", async () => {
-    for (const [p, text] of [["/", "one sign in"], ["/admin", "Student codes"], ["/assets/portal.js", "mountSignIn"], ["/config.js", "clerkPublishableKey"]] as const) {
+    for (const [p, text] of [["/", "one sign in"], ["/sign-in", "one sign in"], ["/sign-up/continue", "one sign in"], ["/admin", "Student codes"], ["/assets/portal.js", "mountSignIn"], ["/config.js", "clerkPublishableKey"]] as const) {
       const r = await fetch(`${base}${p}`);
       assert.equal(r.status, 200, p);
       assert.ok((await r.text()).includes(text), `${p} contains "${text}"`);
