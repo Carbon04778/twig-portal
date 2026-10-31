@@ -1,8 +1,8 @@
-modules = ["nodejs-20", "postgresql-16"]
+modules = ["nodejs-20", "web"]
 run = "npm run build && npm run start"
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 
 [env]
 PORT = "3000"
