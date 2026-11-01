@@ -45,7 +45,7 @@ export const clerkClient = {
   },
 };
 
-export function clerkMiddleware(_options?: unknown): RequestHandler {
+export function clerkMiddleware(_options?: Record<string, unknown> | ((req: Request) => unknown)): RequestHandler {
   return (_req, _res, next) => next();
 }
 
