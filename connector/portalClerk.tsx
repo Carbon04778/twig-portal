@@ -49,7 +49,12 @@ export function useClerk() {
 }
 
 // Providers and themes have nothing to do: the portal already handled sign-in.
-export function ClerkProvider({ children }: { children?: ReactNode; [prop: string]: unknown }) {
+export function ClerkProvider({ children }: {
+  children?: ReactNode;
+  routerPush?: (to: string) => unknown;
+  routerReplace?: (to: string) => unknown;
+  [prop: string]: unknown;
+}) {
   return <>{children}</>;
 }
 
