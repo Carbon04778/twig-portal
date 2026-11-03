@@ -1,0 +1,1 @@
+- [Production secret updates](production-secret-updates.md) — saved secrets require republishing before the live portal uses them; confirm access against production records.
