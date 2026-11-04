@@ -22,7 +22,7 @@ function clerkShapedUser(u: PortalUser) {
   };
 }
 
-const signOut = async () => {
+const signOut = async (_options?: unknown) => {
   window.location.href = portalSignOutUrl;
 };
 
@@ -42,7 +42,7 @@ export function useClerk() {
     loaded: true,
     user: u ? clerkShapedUser(u) : null,
     signOut,
-    addListener: (_cb: unknown) => () => {},
+    addListener: (_cb?: (emission: { user: ReturnType<typeof clerkShapedUser> | null }) => void) => () => {},
     openSignIn: () => {},
     redirectToSignIn: () => {},
   };
