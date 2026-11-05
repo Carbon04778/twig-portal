@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Twig Chemistry</title>
+  <meta name="description" content="All your Twig chemistry apps, one sign in.">
   <link rel="icon" href="/assets/twig-mark.jpg">
   <link rel="stylesheet" href="/assets/twig.css">
   <script src="/config.js"></script>
@@ -11,45 +12,105 @@
   <script src="/assets/portal.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <a href="/"><img src="/assets/twig-logo.png" alt="Twig Learning Center"></a>
-    <div class="who" id="who" hidden>
-      <span id="who-name"></span>
-      <a id="admin-link" class="btn ghost small" href="/admin" hidden>Admin</a>
-      <button class="btn ghost small" id="sign-out">Sign out</button>
-    </div>
-  </header>
+  <div class="spinner" id="loading" aria-label="Loading"></div>
+  <div class="flash" id="message"></div>
 
-  <main>
-    <div class="spinner" id="loading" aria-label="Loading"></div>
-    <div id="message"></div>
+  <!-- Signed out: sign-in page -->
+  <div class="login" id="signed-out" hidden>
+    <section class="login-brand">
+      <a class="brand" href="/">
+        <span class="brand-logo"><img src="/assets/twig-logo-light.png" alt="Twig Learning Center"></span>
+        <span class="brand-group"><span>Part of</span><span>The Think Teach Group</span></span>
+      </a>
+      <p class="login-eyebrow">H2 Chemistry Portal · 9476</p>
+      <h1>We've Got Chemistry!</h1>
+      <p>Access top-tier school prelims and A-Level papers with fully worked solutions, test your speed in timed Paper 1 mock trials, and drill recurring exam patterns. Receive curated exam feedback, master key terminology with our definition bank, and reinforce concepts through custom interactive learning apps—all unlocked with your Twig login.</p>
 
-    <section class="hero" id="signed-out" hidden>
-      <div>
-        <span class="tag">WE'VE GOT CHEMISTRY!</span>
-        <h1>All your Twig chemistry apps, one sign in.</h1>
-        <p>Practise Paper 1 under timed conditions, build topical worksheets, get feedback on your scripts, and more. Sign in with Google or your email to start.</p>
-      </div>
-      <div id="sign-in"></div>
-    </section>
-
-    <section id="signed-in" hidden>
-      <div class="greeting">
-        <h1 id="hello"></h1>
-        <p><span class="badge" id="role-badge"></span> <span id="role-text"></span></p>
-      </div>
-
-      <form class="code-box card" id="code-form" hidden>
-        <div style="flex: 1 1 260px">
-          <strong>Twig student?</strong>
-          <div class="muted small">Enter the code from your teacher to unlock every app.</div>
+      <div class="elements" aria-hidden="true">
+        <div class="element" style="--g1:#f2503a;--g2:#ff8f4a">
+          <span class="element-top">52</span><span class="element-sym">Te</span>
+          <span class="element-foot"><span>Tellurium</span><span>01</span></span>
         </div>
-        <input id="code" name="code" placeholder="ABCD-EFGH" autocomplete="off" maxlength="40" required aria-label="Student code">
-        <button class="btn" type="submit">Unlock</button>
-      </form>
+        <div class="element" style="--g1:#ebc65e;--g2:#8fd68f;--on-art:#2a345e">
+          <span class="element-top">89</span><span class="element-sym">Ac</span>
+          <span class="element-foot"><span>Actinium</span><span>02</span></span>
+        </div>
+        <div class="element" style="--g1:#6474f0;--g2:#d673c3">
+          <span class="element-top">1</span><span class="element-sym">H</span>
+          <span class="element-foot"><span>Hydrogen</span><span>03</span></span>
+        </div>
+      </div>
 
-      <div class="tiles" id="tiles"></div>
+      <div class="login-contact">
+        <span>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          Upper Thomson · Bukit Timah Plaza · Kovan
+        </span>
+        <span>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"></path></svg>
+          twig.sg
+        </span>
+        <span>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.4L3 20.5l1.7-5.5A8.4 8.4 0 1 1 21 11.5z"></path></svg>
+          WhatsApp 8338 7476
+        </span>
+      </div>
     </section>
-  </main>
+
+    <section class="login-panel">
+      <div class="auth-card"><div id="sign-in"></div></div>
+    </section>
+  </div>
+
+  <!-- Signed in: student home -->
+  <div id="signed-in" hidden>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/">
+          <span class="brand-logo">
+            <img src="/assets/twig-logo-light.png" alt="Twig Learning Center">
+            <span class="brand-tag">We've Got Chemistry!</span>
+          </span>
+          <span class="brand-group"><span>Part of</span><span>The Think Teach Group</span></span>
+        </a>
+        <div class="who" id="who">
+          <div class="who-id" id="who-id"><span class="avatar" id="avatar" aria-hidden="true"></span><span id="who-name"></span></div>
+          <a id="admin-link" class="site-btn" href="/admin" hidden>Admin</a>
+          <button class="site-btn" id="sign-out" type="button">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="home">
+      <div class="home-content" id="home-content">
+        <section class="intro">
+          <span class="pill" id="role-pill">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+            <span id="role-pill-text"></span>
+          </span>
+          <h1 id="hello"></h1>
+          <p>Practise a paper, test with timed trial, revise key ideas, or get feedback on a marked script.</p>
+        </section>
+
+        <form class="code-box" id="code-form" hidden>
+          <div class="code-text">
+            <strong>Twig student?</strong>
+            <div>Enter the code from your teacher to unlock every app.</div>
+          </div>
+          <input id="code" name="code" placeholder="ABCD-EFGH" autocomplete="off" maxlength="40" required aria-label="Student code">
+          <button class="btn" type="submit">Unlock</button>
+        </form>
+
+        <div id="sections"></div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <span>Twig Learning Center · Part of The Think Teach Group</span>
+        <a href="https://twig.sg">twig.sg</a>
+      </div>
+    </footer>
+  </div>
 </body>
 </html>

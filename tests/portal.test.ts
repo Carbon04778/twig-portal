@@ -133,6 +133,7 @@ describe("portal", () => {
       assert.ok((await r.text()).includes(text), `${p} contains "${text}"`);
     }
     assert.equal((await fetch(`${base}/assets/twig-logo.png`)).headers.get("content-type"), "image/png");
+    assert.equal((await fetch(`${base}/assets/twig-logo-light.png`)).headers.get("content-type"), "image/png");
   });
 
   test("config.js: same Clerk key as the server; proxy only for production keys on the deployment", async () => {
@@ -242,11 +243,12 @@ describe("portal", () => {
       process.env.PORTAL_URL = base;
       process.env.PORTAL_APP_ID = "fakeapp";
       process.env.PORTAL_APP_SECRET = secret;
-      const { portalRoutes, portalSession, requirePortalUser } = await import("../connector/portalAuth.js");
+      const { portalRoutes, portalSession, requirePortalRole, requirePortalUser } = await import("../connector/portalAuth.js");
       fake.use(portalSession);
       fake.use("/api/portal", portalRoutes);
       fake.use("/api", requirePortalUser({ allow: ["/healthz"] }));
       fake.get("/api/healthz", (_req, res) => { res.json({ ok: true }); });
+      fake.post("/api/admin-thing", requirePortalRole("admin"), (_req, res) => { res.json({ ok: true }); });
       fake.get("/api/data", (_req, res) => { res.json({ hello: res.locals.portalUser.email, role: res.locals.portalUser.role }); });
 
       // Signed out: the app's API says where to sign in.
@@ -266,6 +268,7 @@ describe("portal", () => {
 
       const data = await fetch(`${fakeBase}/api/data`, { headers: { cookie } });
       assert.deepEqual(await data.json(), { hello: "donnellkoh@gmail.com", role: "admin" });
+      assert.equal((await fetch(`${fakeBase}/api/admin-thing`, { method: "POST", headers: { cookie } })).status, 200, "admin passes requirePortalRole");
       const me = await fetch(`${fakeBase}/api/portal/me`, { headers: { cookie } });
       assert.equal((await me.json() as any).user.email, "donnellkoh@gmail.com");
 

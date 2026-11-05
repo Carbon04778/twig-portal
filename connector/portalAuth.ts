@@ -119,6 +119,45 @@ export function requirePortalUser(opts: { allow?: string[] } = {}) {
   };
 }
 
+// A stable UUID for the signed-in portal user (UUID v5 format from a SHA-1 of the user ID),
+// for apps that key saved data by an "ownerId" UUID the browser used to invent.
+export function portalOwnerId(user: PortalUser): string {
+  const h = crypto.createHash("sha1").update(`twig-portal-owner:${user.id}`).digest("hex");
+  const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+// Replaces a client-sent owner field (query string or JSON body) with the portal user's own
+// ID, so users can only ever reach their own saved data. Mount after portalSession.
+export function portalOwner(field: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const user = res.locals.portalUser as PortalUser | undefined;
+    if (!user) return next();
+    const id = portalOwnerId(user);
+    if (req.query && field in req.query) {
+      Object.defineProperty(req, "query", { value: { ...req.query, [field]: id }, configurable: true, writable: true });
+    }
+    if (req.body && typeof req.body === "object" && field in req.body) (req.body as Record<string, unknown>)[field] = id;
+    next();
+  };
+}
+
+// Restrict a route to some roles, e.g. router.post("/x", requirePortalRole("admin"), handler).
+export function requirePortalRole(...roles: PortalUser["role"][]) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const user = res.locals.portalUser as PortalUser | undefined;
+    if (!user) {
+      res.status(401).json({ error: "portal_sign_in_required", portalUrl: portalLaunchUrl() });
+      return;
+    }
+    if (!roles.includes(user.role)) {
+      res.status(403).json({ error: "not_allowed", message: "Only Twig admins can do this." });
+      return;
+    }
+    next();
+  };
+}
+
 export const portalRoutes = Router();
 
 // The portal redirects here with ?code=...; swap it for the user, start the session.
