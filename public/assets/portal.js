@@ -1,4 +1,4 @@
-// Student-facing page: sign in, see app tiles, redeem a student code, open apps.
+// Student-facing page: sign in, see app cards, redeem a student code, open apps.
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
@@ -8,8 +8,27 @@ function el(tag, attrs = {}, ...children) {
     if (k === "class") node.className = v;
     else if (v !== false && v != null) node.setAttribute(k, v === true ? "" : v);
   }
-  for (const c of children) node.append(c);
+  for (const c of children) if (c != null) node.append(c);
   return node;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  arrow: ["M5 12h14", "M13 6l6 6-6 6"],
+  lock: ["M7 11V8a5 5 0 0 1 10 0v3", "M5 11h14v10H5z"],
+};
+function icon(name, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({
+    viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
+    "stroke-width": 2.25, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true",
+  })) svg.setAttribute(k, v);
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
 }
 
 function showMessage(text, kind = "") {
@@ -28,39 +47,157 @@ async function api(path, init) {
   return { status: res.status, body };
 }
 
-const ROLE_TEXT = {
-  public: "You can use the free app. Have a student code? Enter it below to unlock everything.",
-  student: "You have full student access to every app.",
-  admin: "Admin. You can open every app and manage access.",
+// ---- Card design for each Twig app -----------------------------------------------------
+// Wording and colours for the six main apps live here, keyed by the app's ID in Admin → Apps.
+// (Name and description set in Admin are not used for these six.) Any other app you add later
+// shows up under "More apps" with the name and description from Admin.
+const SECTIONS = [
+  { title: "Practise papers", note: "Timed practice and topical papers", ids: ["paper1", "alevel-mcq", "worksheets"] },
+  { title: "Learn & revise", note: "Key ideas and commonly tested questions", ids: ["question-bank", "definitions"] },
+  { title: "Get feedback", note: "Turn your scripts into a plan for an A", ids: ["review"], wide: true },
+];
+
+const APP_DESIGN = {
+  paper1: {
+    n: 1, symbol: "Pm", label: "Prelim MCQ", title: "Prelim MCQ Practice",
+    text: "Timed practice for Prelim MCQ with worked solutions and voice explanations.",
+    tags: ["Timed", "Voice"], colors: ["#D9412F", "#F28C4A"], on: "#FFFFFF", chip: ["#A23A21", "#FBE5DC"],
+  },
+  "alevel-mcq": {
+    n: 2, symbol: "Mq", label: "A-Level MCQ", title: "A-Level MCQ Practice",
+    text: "Timed practice for A-Level MCQ with worked solutions.",
+    tags: ["Timed", "Worked solutions"], colors: ["#EBC65E", "#8FD68F"], on: "#2A345E", chip: ["#3F6B22", "#E6F2D8"],
+  },
+  worksheets: {
+    n: 3, symbol: "Tp", label: "Topical", title: "Topical Prelim Practice",
+    text: "Build topical prelim practice papers, complete with mark schemes.",
+    tags: ["Topical", "Mark scheme"], colors: ["#6474F0", "#D673C3"], on: "#FFFFFF", chip: ["#5B3FB0", "#ECE6FA"],
+  },
+  "question-bank": {
+    n: 4, symbol: "Eh", label: "Hotspots", title: "H2 Chem Exam Hotspots",
+    text: "The most-tested H2 Chemistry questions, all in one app.",
+    tags: ["Most tested"], colors: ["#4FCFC0", "#B6E57E"], on: "#2A345E", chip: ["#1F6E64", "#DDF3EF"],
+  },
+  definitions: {
+    n: 5, symbol: "Dh", label: "Definitions", title: "H2 Chemistry Definitions Handbook",
+    text: "Learn and test yourself on key chemistry definitions.",
+    tags: ["Flashcards", "Self-test"], colors: ["#FF8FA3", "#FFD07A"], on: "#2A345E", chip: ["#A8324F", "#FDE3E8"],
+  },
+  review: {
+    n: 6, symbol: "Ms", label: "Mark Script", title: "Mark My Script",
+    text: "Upload your marked or unmarked script for detailed feedback and a personal roadmap to get an A.",
+    tags: [], colors: ["#5B4BDB", "#3A9BE8"], on: "#FFFFFF", chip: ["#2A345E", "#EDE6D8"], cta: "Upload a script",
+  },
 };
 
-function render({ user, apps }) {
+// Look for any other app: initials from its name, a calm navy-family colour, and Admin's wording.
+const EXTRA_COLORS = [["#273561", "#4F63B5"], ["#2F6B47", "#8FD68F"], ["#7A4BB0", "#C98BD9"]];
+function extraDesign(app, index) {
+  const words = app.name.trim().split(/\s+/);
+  const second = words[1]?.[0] ?? words[0]?.[1] ?? "";
+  return {
+    n: 7 + index, symbol: (words[0]?.[0] ?? "?").toUpperCase() + second.toLowerCase(),
+    label: app.name, title: app.name, text: app.description || "", tags: [],
+    colors: EXTRA_COLORS[index % EXTRA_COLORS.length], on: "#FFFFFF", chip: ["#2A345E", "#EDE6D8"],
+  };
+}
+
+function appCard(app, design, { wide = false } = {}) {
+  const locked = !app.canOpen;
+  const attrs = { class: `app-card${wide ? " wide" : ""}${locked ? " locked" : ""}` };
+  if (locked) { attrs["aria-disabled"] = "true"; attrs.title = "Enter a student code to unlock this app"; }
+  else attrs.href = `/launch/${encodeURIComponent(app.id)}`;
+  const card = el(locked ? "div" : "a", attrs);
+  if (design.chip) { card.style.setProperty("--chip-fg", design.chip[0]); card.style.setProperty("--chip-bg", design.chip[1]); }
+
+  const art = el("div", { class: "tile-art", "aria-hidden": "true" },
+    el("span", { class: "tile-num" }, String(design.n)),
+    el("span", { class: "tile-sym" }, design.symbol),
+    el("div", { class: "tile-foot" }, el("span", { class: "tile-label" }, design.label), el("span", {}, String(design.n).padStart(2, "0"))),
+  );
+  art.style.setProperty("--g1", design.colors[0]);
+  art.style.setProperty("--g2", design.colors[1]);
+  art.style.setProperty("--on-art", design.on);
+
+  const go = locked
+    ? el("span", { class: "go lock" }, icon("lock", 15), "Students only")
+    : el("span", { class: "go" }, design.cta ?? "Open", icon("arrow"));
+
+  if (wide) {
+    card.append(art, el("div", { class: "wide-text" }, el("h3", {}, design.title), el("p", {}, design.text)), go);
+  } else {
+    card.append(art, el("div", { class: "app-body" },
+      el("div", { class: "app-text" }, el("h3", {}, design.title), el("p", {}, design.text)),
+      el("div", { class: "app-foot" }, el("div", { class: "chips" }, ...design.tags.map((t) => el("span", { class: "chip" }, t))), go),
+    ));
+  }
+  return card;
+}
+
+function section(title, note, cards, { wide = false } = {}) {
+  return el("section", { class: "section" },
+    el("div", { class: "section-head" }, el("h2", {}, title), el("p", {}, note)),
+    el("div", { class: `cards${wide ? " one" : ""}` }, ...cards),
+  );
+}
+
+function renderSections(apps) {
+  const byId = new Map(apps.map((a) => [a.id, a]));
+  const used = new Set();
+  const out = [];
+  for (const s of SECTIONS) {
+    const here = s.ids.map((id) => byId.get(id)).filter(Boolean);
+    here.forEach((a) => used.add(a.id));
+    if (here.length) out.push(section(s.title, s.note, here.map((a) => appCard(a, APP_DESIGN[a.id], { wide: !!s.wide })), { wide: !!s.wide }));
+  }
+  const rest = apps.filter((a) => !used.has(a.id));
+  if (rest.length) out.push(section("More apps", "Also available on your account", rest.map((a, i) => appCard(a, extraDesign(a, i)))));
+  if (!out.length) out.push(el("p", { class: "muted" }, "No apps are available yet."));
+  $("sections").replaceChildren(...out);
+}
+
+// ---- Page states -----------------------------------------------------------------------
+const ROLE_PILL = {
+  student: "Student · full access to every app",
+  admin: "Admin · open every app and manage access",
+  public: "Free account · enter a student code to unlock every app",
+};
+
+function initials(user) {
+  const source = (user.name || user.email || "").trim();
+  if (!source) return "?";
+  const parts = source.includes("@") ? [source] : source.split(/\s+/);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2)).toUpperCase();
+}
+
+function showHome() {
   $("loading").hidden = true;
   $("signed-out").hidden = true;
   $("signed-in").hidden = false;
-  $("who").hidden = false;
+}
+
+function render({ user, apps }) {
+  showHome();
+  $("home-content").hidden = false;
+  $("who-id").hidden = false;
   $("who-name").textContent = user.name || user.email;
+  $("avatar").textContent = initials(user);
   $("admin-link").hidden = user.role !== "admin";
   $("hello").textContent = `Hi ${user.name ? user.name.split(" ")[0] : "there"}!`;
-  $("role-badge").textContent = user.role === "public" ? "Free" : user.role === "student" ? "Student" : "Admin";
-  $("role-badge").className = `badge ${user.role}`;
-  $("role-text").textContent = ROLE_TEXT[user.role];
+  $("role-pill").className = `pill ${user.role}`;
+  $("role-pill-text").textContent = ROLE_PILL[user.role] ?? "";
   $("code-form").hidden = user.role !== "public";
 
   const denied = params.get("denied");
   if (denied) {
     const name = apps.find((a) => a.id === denied)?.name ?? "that app";
     showMessage(`Your account doesn't have access to ${name}${user.role === "public" ? ". Enter a student code to unlock it." : "."}`, "error");
+    // Show it once: drop ?denied= so a later update (like redeeming a code) doesn't bring it back.
+    params.delete("denied");
+    const rest = params.toString();
+    history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
   }
-
-  $("tiles").replaceChildren(...apps.map((a) => el("div", { class: `tile ${a.canOpen ? "" : "locked"}` },
-    el("h3", {}, a.name),
-    el("p", {}, a.description || ""),
-    a.canOpen
-      ? el("a", { class: "btn", href: `/launch/${encodeURIComponent(a.id)}` }, "Open")
-      : el("span", { class: "lock" }, "🔒 Students only"),
-  )));
-  if (!apps.length) $("tiles").append(el("p", { class: "muted" }, "No apps are available yet."));
+  renderSections(apps);
 }
 
 async function loadMe() {
@@ -71,8 +208,10 @@ async function loadMe() {
     return render(body);
   }
   if (status === 403 && body.error === "account_revoked") {
-    $("loading").hidden = true;
-    $("who").hidden = false;
+    showHome();
+    $("home-content").hidden = true;
+    $("who-id").hidden = true;
+    $("admin-link").hidden = true;
     return showMessage("Your access has been switched off. Please contact Twig Learning Center if you think this is a mistake.", "error");
   }
   return null; // 401: show sign-in

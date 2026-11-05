@@ -133,6 +133,7 @@ describe("portal", () => {
       assert.ok((await r.text()).includes(text), `${p} contains "${text}"`);
     }
     assert.equal((await fetch(`${base}/assets/twig-logo.png`)).headers.get("content-type"), "image/png");
+    assert.equal((await fetch(`${base}/assets/twig-logo-light.png`)).headers.get("content-type"), "image/png");
   });
 
   test("config.js: same Clerk key as the server; proxy only for production keys on the deployment", async () => {
