@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean, index, integer, pgEnum, pgTable, primaryKey, serial, text, timestamp, uniqueIndex,
+  boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, serial, text, timestamp, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // public: signed in, no promo code. student: redeemed a promo code (or upgraded by admin).
@@ -18,6 +18,9 @@ export const users = pgTable("users", {
   role: userRole("role").notNull().default("public"),
   status: userStatus("status").notNull().default("active"),
   studentSince: timestamp("student_since", { withTimezone: true }),
+  // Paid access end date. Until then a "public" user is treated as a student; afterwards they
+  // are free again without anything having to run.
+  paidUntil: timestamp("paid_until", { withTimezone: true }),
   createdAt,
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("users_email").on(t.email)]);
@@ -80,3 +83,84 @@ export const auditLog = pgTable("audit_log", {
   detail: text("detail"),
   at: timestamp("at", { withTimezone: true }).notNull().default(sql`now()`),
 });
+
+// Details from the required form after sign-up. Saved here first, then copied to Google Sheets;
+// sheet_synced_at stays empty until the row is in the sheet, so a failed copy can be sent later.
+export const studentProfiles = pgTable("student_profiles", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  fullName: text("full_name").notNull(),
+  school: text("school").notNull(),
+  level: text("level").notNull(),
+  examYear: integer("exam_year").notNull(),
+  mobile: text("mobile").notNull(),
+  heardFrom: text("heard_from").notNull(),
+  consentText: text("consent_text").notNull(), // the exact wording they agreed to
+  consentAt: timestamp("consent_at", { withTimezone: true }).notNull().defaultNow(),
+  sheetSyncedAt: timestamp("sheet_synced_at", { withTimezone: true }),
+  sheetError: text("sheet_error"),
+  createdAt,
+}, (t) => [index("student_profiles_unsynced").on(t.sheetSyncedAt)]);
+
+// What happened inside an app, as reported by that app: exam steps, Claude and voice use, actions.
+export const appEvents = pgTable("app_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  appId: text("app_id").notNull().references(() => apps.id, { onDelete: "cascade" }),
+  eventId: text("event_id").notNull(), // made by the app, so a retried report isn't counted twice
+  type: text("type").notNull(),
+  attemptRef: text("attempt_ref"), // ties together the events of one exam attempt
+  title: text("title"), // e.g. the paper's name
+  label: text("label"), // e.g. "Follow-up question"
+  score: integer("score"),
+  total: integer("total"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  sheetSyncedAt: timestamp("sheet_synced_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("app_events_once").on(t.appId, t.eventId),
+  index("app_events_when").on(t.occurredAt),
+  index("app_events_unsynced").on(t.sheetSyncedAt),
+]);
+
+// One row per visit to an app. Started when the student opens it from the portal; last_active_at
+// moves on each time the app re-checks access with the portal, which gives the time estimate.
+export const appSessions = pgTable("app_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  appId: text("app_id").notNull().references(() => apps.id, { onDelete: "cascade" }),
+  source: text("source").notNull().default("launch"), // launch: opened from the portal; resume: back in a session still open
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
+  sheetSyncedAt: timestamp("sheet_synced_at", { withTimezone: true }),
+}, (t) => [
+  index("app_sessions_started").on(t.startedAt),
+  index("app_sessions_unsynced").on(t.sheetSyncedAt),
+  index("app_sessions_user_app").on(t.userId, t.appId, t.lastActiveAt),
+]);
+
+// Things Donnell edits in the admin panel: apps page wording and payment settings.
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  reference: text("reference").notNull(), // ours, random; also in the return link
+  hitpayRequestId: text("hitpay_request_id"),
+  checkoutUrl: text("checkout_url"),
+  amountCents: integer("amount_cents").notNull(), // the price when this payment was started
+  currency: text("currency").notNull(),
+  months: integer("months").notNull(),
+  status: text("status").notNull().default("pending"), // pending, completed, refunded
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  accessUntil: timestamp("access_until", { withTimezone: true }),
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+  createdAt,
+}, (t) => [
+  uniqueIndex("payments_reference").on(t.reference),
+  index("payments_hitpay_request").on(t.hitpayRequestId),
+  index("payments_user").on(t.userId, t.status),
+]);

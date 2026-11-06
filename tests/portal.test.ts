@@ -44,6 +44,8 @@ describe("portal", () => {
   const DONNELL = "clerk_admin|donnellkoh@gmail.com|Donnell Koh";
   const AMY = "clerk_amy|amy@example.com|Amy Tan";
   const BEN = "clerk_ben|ben@example.com|Ben Lim";
+  const CARA = "clerk_cara|cara@example.com|Cara Ng";
+  const DETAILS = { full_name: "Amy Tan", school: "=HYPERLINK(\"x\")", level: "JC2", exam_year: String(new Date().getFullYear() + 1), mobile: "+65 8123 4567", heard_from: "Google" };
 
   async function call(p: string, as: string | null, init: RequestInit = {}) {
     const headers: Record<string, string> = { ...(as ? { "x-test-user": as } : {}), ...(init.body ? { "content-type": "application/json" } : {}) };
@@ -213,6 +215,15 @@ describe("portal", () => {
     const denied = await call("/launch/review", BEN); // Ben is public
     assert.equal(denied.location, "/?denied=review");
 
+    assert.equal((await call("/launch/paper1", AMY)).location, "/?next=%2Flaunch%2Fpaper1", "details form comes first");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, mobile: "12" })).status, 400, "bad mobile");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, level: "J3" })).status, 400, "bad level");
+    const { exam_year: _omitted, ...noYear } = DETAILS;
+    assert.equal((await post("/api/profile", AMY, noYear)).status, 400, "exam year is compulsory");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, exam_year: "" })).status, 400, "empty exam year");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, exam_year: "1999" })).status, 400, "exam year out of range");
+    assert.equal((await post("/api/profile", AMY, DETAILS)).status, 200);
+
     const go = await call("/launch/paper1", AMY);
     assert.equal(go.status, 303);
     const target = new URL(go.location!);
@@ -311,5 +322,382 @@ describe("portal", () => {
       "admins can't be changed from the panel");
     const audit = await call("/api/admin/audit", DONNELL);
     assert.ok(audit.body.data.some((a: any) => a.action === "promo.redeem"));
+  });
+
+  test("sign-up details reach the sheet, and a failed copy is sent later", async () => {
+    const { setSheetTransport } = await import("../src/lib/profile.js");
+    const writes: { path: string; values: any[][] }[] = [];
+    let sheetDown = false;
+    setSheetTransport(async (p, init) => {
+      if (sheetDown) return new Response("{}", { status: 503 });
+      if (init.method === "GET") return Response.json({ values: writes.length ? [["header"]] : undefined });
+      writes.push({ path: p, values: JSON.parse(String(init.body)).values });
+      return Response.json({});
+    });
+
+    // Not connected yet: saved, student not blocked, nothing lost.
+    delete process.env.GOOGLE_SHEET_ID;
+    assert.equal((await post("/api/profile", BEN, { ...DETAILS, full_name: "Ben Lim" })).status, 200);
+    let list = await call("/api/admin/signups", DONNELL);
+    assert.equal(list.body.sheetIsSet, false);
+    assert.equal(list.body.data.find((r: any) => r.email === "ben@example.com").sheetSyncedAt, null);
+
+    process.env.GOOGLE_SHEET_ID = "sheet123";
+    const sent = await post("/api/admin/signups/sync", DONNELL, {});
+    assert.equal(sent.body.data.status, "sent");
+    assert.equal(writes[0]!.values[0]![0], "Signed up (SGT)", "header row first");
+    const row = writes[1]!.values.find((r) => r[2] === "ben@example.com")!;
+    assert.deepEqual(row.slice(1, 8), ["Ben Lim", "ben@example.com", "+6581234567", DETAILS.school, "JC2", Number(DETAILS.exam_year), "Google"]);
+    assert.equal(writes[0]!.values[0]![6], "Exam year", "header lines up with the row");
+    assert.match(writes[1]!.path, /:append\?valueInputOption=RAW/, "RAW: a typed formula stays text");
+
+    // Sheet down: the student still gets in, and the row goes with the next send.
+    sheetDown = true;
+    assert.equal((await post("/api/profile", CARA, { ...DETAILS, full_name: "Cara Ng" })).status, 200);
+    list = await call("/api/admin/signups", DONNELL);
+    assert.match(list.body.data.find((r: any) => r.email === "cara@example.com").sheetError, /503/);
+    sheetDown = false;
+    assert.equal((await post("/api/admin/signups/sync", DONNELL, {})).body.data.sent, 1);
+    assert.equal((await post("/api/admin/signups/sync", DONNELL, {})).body.data.status, "nothing_to_send", "never sent twice");
+
+    // A second submit can't overwrite the first answer.
+    await post("/api/profile", CARA, { ...DETAILS, full_name: "Someone Else" });
+    assert.equal((await call("/api/me", CARA)).body.user.name, "Cara Ng");
+
+    const csv = await call("/api/admin/signups.csv", DONNELL);
+    assert.match(String(csv.body), /'=HYPERLINK/, "formula neutralised in the CSV");
+    assert.match(String(csv.body), /,\+6581234567,/, "phone number left alone");
+    assert.equal((await call("/api/admin/signups.csv", BEN)).status, 403);
+  });
+
+  test("usage: opens and estimated time per app and student; admin not counted", async () => {
+    await call("/launch/paper1", DONNELL);
+    const amy = (await call("/api/admin/users?q=amy", DONNELL)).body.data[0];
+    await mod.pool.query("delete from app_sessions");
+    await call("/launch/paper1", AMY);
+    await mod.pool.query("update app_sessions set started_at = now() - interval '20 minutes', last_active_at = now() - interval '5 minutes'");
+    const chk = await post("/api/apps/check", null, { app_id: "paper1", user_id: amy.id }, { "x-app-secret": paper1Secret });
+    assert.equal(chk.body.allowed, true);
+
+    const usage = await call("/api/admin/usage?days=7", DONNELL);
+    assert.deepEqual(usage.body.byApp.map((a: any) => [a.appId, a.opens, a.students, a.minutes]), [["paper1", 1, 1, 20]]);
+    assert.deepEqual(usage.body.students.map((s: any) => [s.email, s.opens, s.minutes]), [["amy@example.com", 1, 20]]);
+
+    // Coming back long after: a new visit, not one long one, and not counted as an open.
+    await mod.pool.query("update app_sessions set last_active_at = now() - interval '2 hours'");
+    await post("/api/apps/check", null, { app_id: "paper1", user_id: amy.id }, { "x-app-secret": paper1Secret });
+    const later = await call("/api/admin/usage?days=7", DONNELL);
+    assert.equal(later.body.byApp[0].opens, 1);
+    assert.equal((await mod.pool.query("select count(*)::int as n from app_sessions")).rows[0].n, 2);
+    assert.match(String((await call("/api/admin/usage.csv?days=7", DONNELL)).body), /Came back/);
+    assert.equal((await call("/api/admin/usage", AMY)).status, 403);
+
+    // Google Sheet: finished visits only, in their own tab, each sent once.
+    const { setSheetTransport } = await import("../src/lib/profile.js");
+    const sheet: { path: string; method: string; body: any }[] = [];
+    let tabs: string[] = ["Sheet1"];
+    let down = false;
+    setSheetTransport(async (p, init) => {
+      if (down) return new Response("{}", { status: 503 });
+      const body = init.body ? JSON.parse(String(init.body)) : null;
+      sheet.push({ path: p, method: init.method!, body });
+      if (p.includes("?fields=")) return Response.json({ sheets: tabs.map((title) => ({ properties: { title } })) });
+      if (p.endsWith(":batchUpdate")) tabs = [...tabs, body.requests[0].addSheet.properties.title];
+      return Response.json({});
+    });
+    process.env.GOOGLE_SHEET_ID = "sheet123";
+    await mod.pool.query("delete from app_sessions");
+    await call("/launch/paper1", DONNELL); // admin: never sent
+    await call("/launch/paper1", AMY); // still going: must wait
+    await call("/launch/paper1", AMY);
+    await mod.pool.query(`update app_sessions set started_at = now() - interval '2 hours', last_active_at = now() - interval '100 minutes'
+      where id = (select min(s.id) from app_sessions s join users u on u.id = s.user_id where u.email = 'amy@example.com')`);
+
+    down = true;
+    assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "failed", "sheet down");
+    assert.equal((await call("/api/admin/usage", DONNELL)).body.sheetWaiting, 2, "nothing marked sent");
+    down = false;
+
+    assert.deepEqual((await post("/api/admin/usage/sync", DONNELL, {})).body.data, { status: "sent", sent: 1 });
+    assert.ok(tabs.includes("App activity"), "tab created");
+    const append = sheet.find((s) => s.path.includes(":append"))!;
+    assert.match(decodeURIComponent(append.path), /'App activity'!A:J:append\?valueInputOption=RAW/);
+    const header = sheet.find((s) => s.method === "PUT")!.body.values[0];
+    assert.equal(header[7], "App");
+    assert.deepEqual(append.body.values.map((r: any[]) => [r[2], r[4], r[7], r[8]]), [[20, "amy@example.com", "Prelim MCQ Practice", "Opened"]]);
+    assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "nothing_to_send", "never sent twice");
+    assert.equal((await call("/api/admin/usage", DONNELL)).body.sheetWaiting, 1, "the running visit still waits");
+    assert.equal((await post("/api/admin/usage/sync", AMY, {})).status, 403);
+    setSheetTransport(async () => Response.json({}));
+  });
+
+  test("in-app events: exam steps and Claude use reach the admin panel and the Sheet", async () => {
+    const express = (await import("express")).default;
+    const fake = express();
+    fake.use(express.json());
+    const fakeHttp = fake.listen(0);
+    await new Promise((r) => fakeHttp.once("listening", r));
+    const fakeBase = `http://127.0.0.1:${(fakeHttp.address() as { port: number }).port}`;
+    try {
+      await post("/api/admin/apps", DONNELL, { id: "eventsapp", name: "Events app", url: fakeBase, public_access: true });
+      const secret = (await post("/api/admin/apps/eventsapp/secret", DONNELL, {})).body.data.secret;
+      Object.assign(process.env, { PORTAL_URL: base, PORTAL_APP_ID: "eventsapp", PORTAL_APP_SECRET: secret });
+      const { portalRoutes, portalSession, portalTrack, requirePortalUser } = await import("../connector/portalAuth.js");
+      fake.use(portalSession);
+      fake.use(portalTrack([
+        { match: "POST /api/explain/:id", type: "claude_used", label: "Explanation" },
+        { match: "POST /api/fails", type: "claude_used", label: "Should not count" },
+        { match: "POST /api/tests/:code/join", type: "exam_started", ref: "class-{code}", title: "Class test {code}" },
+      ]));
+      fake.use("/api/portal", portalRoutes);
+      fake.use("/api", requirePortalUser());
+      fake.post("/api/explain/:id", (_req, res) => { res.json({ ok: true }); });
+      fake.post("/api/fails", (_req, res) => { res.status(500).json({}); });
+      fake.post("/api/tests/:code/join", (_req, res) => { res.json({ ok: true }); });
+
+      const cb = await fetch((await call("/launch/eventsapp", AMY)).location!, { redirect: "manual" });
+      const cookie = cb.headers.get("set-cookie")!.split(";")[0]!;
+      const send = (path: string, body: unknown = {}, c: string | null = cookie) => fetch(`${fakeBase}${path}`, {
+        method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body),
+      });
+      const rows = async () => (await mod.pool.query("select * from app_events where app_id = 'eventsapp' order by occurred_at, id")).rows;
+      const waitFor = async (n: number) => {
+        for (let i = 0; i < 100 && (await rows()).length < n; i++) await new Promise((r) => setTimeout(r, 20));
+        return rows();
+      };
+
+      // Server-side rules: only successful calls count.
+      await send("/api/explain/1");
+      await send("/api/explain/2");
+      await send("/api/fails");
+      await send("/api/tests/ABC/join");
+      assert.equal((await waitFor(3)).length, 3);
+      const tracked = await rows();
+      assert.ok(tracked.every((r: any) => r.label !== "Should not count"));
+      assert.equal(tracked.find((r: any) => r.type === "exam_started").attempt_ref, "class-ABC");
+
+      // Browser steps: timestamps kept; students can't report Claude use or act signed out.
+      const t = Date.now() - 3_600_000;
+      const iso = (min: number) => new Date(t + min * 60_000).toISOString();
+      for (const e of [
+        { type: "exam_started", ref: "p1:1", title: "ACJC 2026 P1", at: iso(0) },
+        { type: "exam_left", ref: "p1:1", title: "ACJC 2026 P1", at: iso(10) },
+        { type: "exam_returned", ref: "p1:1", title: "ACJC 2026 P1", at: iso(14) },
+        { type: "exam_submitted", ref: "p1:1", title: "ACJC 2026 P1", at: iso(30), score: 22, total: 30 },
+        { type: "exam_started", ref: "p1:2", title: "HCI 2026 P1", at: iso(40) },
+        { type: "exam_quit", ref: "p1:2", title: "HCI 2026 P1", at: iso(45) },
+      ]) assert.equal((await send("/api/portal/events", e)).status, 204);
+      assert.equal((await send("/api/portal/events", { type: "claude_used" })).status, 400, "server only");
+      assert.equal((await send("/api/portal/events", { type: "exam_started", ref: "x" }, null)).status, 401);
+
+      const usage = (await call("/api/admin/usage?days=7", DONNELL)).body;
+      const exam = usage.exams.find((e: any) => e.title === "ACJC 2026 P1");
+      assert.deepEqual([exam.result, exam.score, exam.total, exam.timesAway, exam.minutesAway, exam.student],
+        ["Submitted", 22, 30, 1, 4, "Amy Tan"]);
+      assert.equal(new Date(exam.startedAt).toISOString(), iso(0), "the time it happened, not the time it arrived");
+      assert.equal(new Date(exam.endedAt).toISOString(), iso(30));
+      assert.equal(usage.exams.find((e: any) => e.title === "HCI 2026 P1").result, "Quit");
+      assert.equal(usage.exams.find((e: any) => e.title === "Class test ABC").result, "Not finished");
+      assert.deepEqual(usage.aiByApp.map((a: any) => [a.title, a.label, a.uses, a.students]), [["Events app", "Explanation", 2, 1]]);
+      assert.deepEqual(usage.aiByStudent.map((s: any) => [s.name, s.claude, s.voice]), [["Amy Tan", 2, 0]]);
+
+      // Direct reports: a retry is kept once, a wrong secret or unknown student adds nothing.
+      const amyId = tracked[0].user_id;
+      const direct = (headers: Record<string, string>, userId = amyId) => post("/api/apps/events", null, {
+        app_id: "eventsapp", user_id: userId,
+        events: [{ id: "retry-event-1", type: "action", label: "Generated a paper", at: new Date().toISOString() }],
+      }, headers);
+      assert.equal((await direct({ "x-app-secret": "tps_wrong" })).status, 401);
+      const before = (await rows()).length;
+      assert.equal((await direct({ "x-app-secret": secret })).status, 200);
+      assert.equal((await direct({ "x-app-secret": secret })).status, 200);
+      assert.equal((await rows()).length, before + 1, "same report twice is one row");
+      assert.equal((await direct({ "x-app-secret": secret }, 999_999)).body.recorded, 0);
+
+      // Sheet: its own tab, each event once.
+      const { setSheetTransport } = await import("../src/lib/profile.js");
+      const sheet: { path: string; body: any }[] = [];
+      setSheetTransport(async (p, init) => {
+        sheet.push({ path: p, body: init.body ? JSON.parse(String(init.body)) : null });
+        return p.includes("?fields=") ? Response.json({ sheets: [{ properties: { title: "Sheet1" } }] }) : Response.json({});
+      });
+      process.env.GOOGLE_SHEET_ID = "sheet123";
+      const sent = (await post("/api/admin/usage/sync", DONNELL, {})).body.data;
+      assert.equal(sent.status, "sent");
+      const append = sheet.filter((s) => decodeURIComponent(s.path).includes("'Exams and Claude'!") && s.path.includes(":append"));
+      assert.equal(append.length, 1);
+      const line = append[0]!.body.values.find((r: any[]) => r[6] === "Exam submitted");
+      assert.deepEqual([line[1], line[5], line[7], line[9], line[10]], ["Amy Tan", "Events app", "ACJC 2026 P1", 22, 30]);
+      const csv = String((await call("/api/admin/events.csv?days=7", DONNELL)).body);
+      assert.match(csv, /Stepped away from exam/);
+      assert.equal((await call("/api/admin/events.csv", AMY)).status, 403);
+      assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "nothing_to_send", "never sent twice");
+      setSheetTransport(async () => Response.json({}));
+    } finally {
+      fakeHttp.close();
+      await post("/api/admin/apps/eventsapp", DONNELL, {}).catch(() => {});
+    }
+  });
+
+  test("page text: edited in admin, shown to students, can be restored", async () => {
+    const before = await call("/api/admin/content", DONNELL);
+    assert.equal(before.body.data.apps.paper1.title, "Prelim MCQ Practice");
+    const apps = { ...before.body.data.apps, paper1: { title: "New heading", text: "New words", label: "Tile", tags: ["One", "Two"], cta: "Go" } };
+    const sections = Object.fromEntries(before.body.data.sections.map((s: any) => [s.id, { title: s.title, note: s.note }]));
+    sections.practise.title = "Papers";
+    const body = { intro: "Welcome!", sections, apps };
+    assert.equal((await call("/api/admin/content", AMY, { method: "PUT", body: JSON.stringify(body) })).status, 403);
+    assert.equal((await call("/api/admin/content", DONNELL, { method: "PUT", body: JSON.stringify(body) })).status, 200);
+
+    const me = (await call("/api/me", AMY)).body;
+    assert.equal(me.content.intro, "Welcome!");
+    assert.equal(me.content.sections.find((s: any) => s.id === "practise").title, "Papers");
+    assert.deepEqual(me.content.apps.paper1.tags, ["One", "Two"]);
+
+    const empty = { ...body, apps: { ...apps, paper1: { ...apps.paper1, title: "" } } };
+    assert.equal((await call("/api/admin/content", DONNELL, { method: "PUT", body: JSON.stringify(empty) })).status, 400, "a heading can't be blank");
+    await call("/api/admin/content", DONNELL, { method: "DELETE" });
+    assert.equal((await call("/api/me", AMY)).body.content.apps.paper1.title, "Prelim MCQ Practice");
+  });
+
+  describe("payment", () => {
+    const fake = { status: "pending", amount: "20.00", currency: "SGD", created: [] as URLSearchParams[], apiKeys: [] as string[] };
+    let hitpayServer: Server;
+    const SALT = "webhook-salt";
+    let payUser: any;
+    const DAN = "clerk_dan|dan@example.com|Dan Goh";
+
+    const settings = (over = {}) => call("/api/admin/payment", DONNELL, {
+      method: "PUT",
+      body: JSON.stringify({ enabled: true, price: 20, compare_at: 120, months: 12, refund_policy: "7 day refund.", ...over }),
+    });
+    const webhook = async (body: object, salt = SALT) => {
+      const raw = JSON.stringify(body);
+      const crypto = await import("node:crypto");
+      return fetch(`${base}/api/hitpay/webhook`, {
+        method: "POST", body: raw,
+        headers: { "content-type": "application/json", "hitpay-signature": crypto.createHmac("sha256", salt).update(raw).digest("hex") },
+      });
+    };
+    const startCheckout = async () => {
+      const r = await post("/api/pay/start", DAN, {});
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      return new URLSearchParams(fake.created.at(-1)!).get("reference_number")!;
+    };
+
+    before(async () => {
+      const express = (await import("express")).default;
+      const hp = express();
+      hp.use(express.urlencoded({ extended: false }));
+      hp.post("/v1/payment-requests", (req, res) => {
+        fake.apiKeys.push(String(req.headers["x-business-api-key"]));
+        fake.created.push(new URLSearchParams(req.body));
+        const id = `00000000-0000-4000-8000-${String(fake.created.length).padStart(12, "0")}`;
+        res.status(201).json({ id, url: `https://checkout.example/${id}`, status: "pending" });
+      });
+      hp.get("/v1/payment-requests/:id", (_req, res) => {
+        res.json({ status: fake.status, amount: fake.amount, currency: fake.currency });
+      });
+      hitpayServer = hp.listen(0);
+      await new Promise((r) => hitpayServer.once("listening", r));
+      process.env.HITPAY_API_URL = `http://127.0.0.1:${(hitpayServer.address() as { port: number }).port}`;
+      process.env.HITPAY_API_KEY = "test_key";
+      process.env.HITPAY_WEBHOOK_SALT = SALT;
+      delete process.env.HITPAY_SALT;
+      delete process.env.HITPAY_MODE;
+      await call("/api/me", DAN);
+      await post("/api/profile", DAN, { ...DETAILS, full_name: "Dan Goh" });
+      payUser = (await call("/api/admin/users?q=dan@", DONNELL)).body.data[0];
+    });
+    after(() => { hitpayServer?.close(); });
+
+    test("off by default: no offer and no charge", async () => {
+      assert.equal((await call("/api/me", DAN)).body.payment.offer, null);
+      assert.equal((await post("/api/pay/start", DAN, {})).body.error, "payment_off");
+      assert.equal(fake.created.length, 0);
+      assert.equal((await call("/api/admin/payment", AMY)).status, 403);
+    });
+
+    test("a forged return or webhook gives nothing; a real payment unlocks every app for 12 months", async () => {
+      assert.equal((await settings()).status, 200);
+      const offer = (await call("/api/me", DAN)).body.payment.offer;
+      assert.deepEqual([offer.priceCents, offer.compareAtCents, offer.months, offer.refundPolicy], [2000, 12000, 12, "7 day refund."]);
+
+      const reference = await startCheckout();
+      const sent = fake.created[0]!;
+      assert.deepEqual([sent.get("amount"), sent.get("currency"), sent.get("email")], ["20.00", "SGD", "dan@example.com"]);
+      assert.ok(sent.get("redirect_url")!.endsWith(`/?payment=${reference}`));
+      assert.equal(fake.apiKeys[0], "test_key");
+      await startCheckout();
+      assert.equal(fake.created.length, 1, "clicking twice reuses the same checkout");
+
+      // Coming back without paying.
+      assert.equal((await post("/api/pay/check", DAN, { reference })).body.status, "pending");
+      assert.equal((await call("/api/me", DAN)).body.user.role, "public");
+      assert.equal((await post("/api/pay/check", BEN, { reference })).status, 404, "someone else's payment");
+
+      // Forged signature, and a real signature while HitPay says unpaid.
+      const hitpayId = (await mod.pool.query("select hitpay_request_id as id from payments where reference = $1", [reference])).rows[0].id;
+      assert.equal((await webhook({ id: hitpayId }, "wrong-salt")).status, 401);
+      assert.equal((await webhook({ id: hitpayId })).status, 200);
+      assert.equal((await call("/api/me", DAN)).body.user.role, "public");
+
+      // HitPay shows less than the price: no access.
+      fake.status = "completed";
+      fake.amount = "1.00";
+      await webhook({ id: hitpayId });
+      assert.equal((await call("/api/me", DAN)).body.user.role, "public");
+
+      // Paid. Repeating the webhook and the return must not add time twice.
+      fake.amount = "20.00";
+      await Promise.all([webhook({ id: hitpayId }), webhook({ id: hitpayId }), post("/api/pay/check", DAN, { reference })]);
+      const me = (await call("/api/me", DAN)).body;
+      assert.equal(me.user.role, "student");
+      assert.ok(me.apps.every((a: any) => a.canOpen));
+      assert.equal(me.payment.offer, null, "no offer while plenty of time is left");
+      const until = new Date(me.user.paidUntil);
+      const months = (until.getFullYear() - new Date().getFullYear()) * 12 + until.getMonth() - new Date().getMonth();
+      assert.equal(months, 12);
+
+      // Connected apps see a student too.
+      const chk = await post("/api/apps/check", null, { app_id: "paper1", user_id: payUser.id }, { "x-app-secret": paper1Secret });
+      assert.equal(chk.body.role, "student");
+      assert.equal((await post("/api/pay/start", DAN, {})).body.error, "not_needed");
+    });
+
+    test("switching payment off keeps paid access; refund and expiry return to free", async () => {
+      await settings({ enabled: false });
+      assert.equal((await call("/api/me", DAN)).body.user.role, "student", "off doesn't remove what was paid for");
+      await settings();
+
+      // Last month of access: may renew, and the new time stacks on what's left.
+      await mod.pool.query("update users set paid_until = now() + interval '10 days' where id = $1", [payUser.id]);
+      await mod.pool.query("update payments set access_until = now() + interval '10 days' where user_id = $1", [payUser.id]);
+      assert.ok((await call("/api/me", DAN)).body.payment.offer, "renewal offered");
+      fake.status = "pending";
+      const reference = await startCheckout();
+      fake.status = "completed";
+      await post("/api/pay/check", DAN, { reference });
+      const renewed = new Date((await call("/api/me", DAN)).body.user.paidUntil);
+      assert.ok(renewed.getTime() > Date.now() + 370 * 86_400_000, "12 months on top of the 10 days");
+
+      // Refunding the renewal goes back to the earlier end date; refunding that too means free.
+      const list = (await call("/api/admin/payment", DONNELL)).body.data.payments.filter((p: any) => p.email === "dan@example.com");
+      assert.equal(list.length, 2);
+      assert.equal((await post(`/api/admin/payments/${list[0].id}/refund`, AMY, {})).status, 403);
+      await post(`/api/admin/payments/${list[0].id}/refund`, DONNELL, {});
+      const back = new Date((await call("/api/me", DAN)).body.user.paidUntil);
+      assert.ok(back.getTime() < Date.now() + 11 * 86_400_000);
+      assert.equal((await post(`/api/admin/payments/${list[0].id}/refund`, DONNELL, {})).status, 400, "only once");
+      await post(`/api/admin/payments/${list[1].id}/refund`, DONNELL, {});
+      assert.equal((await call("/api/me", DAN)).body.user.role, "public");
+
+      // Time running out needs no job: the student is simply free again.
+      await mod.pool.query("update users set paid_until = now() - interval '1 minute' where id = $1", [payUser.id]);
+      const expired = (await call("/api/me", DAN)).body;
+      assert.equal(expired.user.role, "public");
+      assert.ok(expired.payment.offer, "can pay again");
+      assert.equal((await call("/launch/worksheets", DAN)).location, "/?denied=worksheets");
+    });
   });
 });

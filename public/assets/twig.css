@@ -140,6 +140,24 @@ a.app-card:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px;
   .app-card.wide .go { margin: 0 4px 8px; }
 }
 
+/* ---------- Details form after sign-up ---------- */
+.profile-card { max-width: 520px; margin: 0 auto; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+.profile-card h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
+.profile-card > p { margin: 0; }
+.profile-card label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 15px; }
+.profile-card input, .profile-card select { font-weight: 400; min-height: 46px; width: 100%; }
+.consent { color: var(--ink-soft); line-height: 1.5; }
+
+/* ---------- Payment box ---------- */
+.pay-box { background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
+.pay-main { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between; }
+.pay-main strong { font-size: 18px; }
+.pay-price { margin-top: 2px; }
+#pay-price { font-size: 22px; font-weight: 700; }
+.pay-main .btn { height: 46px; padding: 0 24px; }
+.pay-policy { border-top: 1px solid var(--line); padding-top: 12px; color: var(--ink-soft); }
+.pay-policy p { margin: 4px 0 0; line-height: 1.5; white-space: pre-line; }
+
 /* ---------- Sign-in page ---------- */
 .login { min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr; }
 .login-brand { background: var(--navy); color: var(--cream-deep); padding: 56px clamp(28px, 6.5vw, 78px) 0; display: flex; flex-direction: column; gap: 22px; }
@@ -193,6 +211,15 @@ tr.dim td { color: var(--muted); }
 .check { display: flex; gap: 6px; align-items: center; font-size: 14px; }
 .toast { position: fixed; bottom: 18px; right: 18px; padding: 10px 16px; border-radius: 10px; background: var(--navy); color: var(--cream); }
 .toast.error { background: var(--danger); }
+.table-scroll { overflow-x: auto; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.edit-group { display: flex; flex-direction: column; gap: 10px; }
+.edit-group h3 { margin: 0; font-size: 16px; }
+.edit-group label, .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 14px; }
+.edit-group input, .edit-group textarea, .field input, .field textarea { width: 100%; color: var(--navy-ink); }
+textarea { font: inherit; padding: 9px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; resize: vertical; }
+.switch-row { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.switch-row input { width: 20px; height: 20px; }
 #message .notice { margin: 16px 0; }
 .flash .notice { margin: 0; }
 #sections { display: flex; flex-direction: column; gap: 48px; }

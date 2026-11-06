@@ -2,23 +2,29 @@
 //
 // 1. Revoked users and disabled apps: never.
 // 2. A per-user override for this app (admin panel) wins next.
-// 3. Admins and students: every enabled app.
+// 3. Admins, students and users with paid access: every enabled app.
 // 4. Public users: only apps marked publicAccess.
 export type Role = "public" | "student" | "admin";
 
 export interface AccessUser {
   role: Role;
   status: "active" | "revoked";
+  paidUntil?: Date | null;
 }
 export interface AccessApp {
   enabled: boolean;
   publicAccess: boolean;
 }
 
+// Paying gives the same access as a student code, until the paid period ends.
+export function effectiveRole(user: Pick<AccessUser, "role" | "paidUntil">, now = new Date()): Role {
+  return user.role === "public" && user.paidUntil && user.paidUntil > now ? "student" : user.role;
+}
+
 export function canOpen(user: AccessUser, app: AccessApp, override?: boolean | null): boolean {
   if (user.status !== "active" || !app.enabled) return false;
   if (override === true || override === false) return override;
-  if (user.role === "admin" || user.role === "student") return true;
+  if (effectiveRole(user) !== "public") return true;
   return app.publicAccess;
 }
 

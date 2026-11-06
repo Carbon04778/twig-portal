@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import { isProduction } from "./env.js";
 import { clerkIdentity, type IdentityProvider } from "./auth/identity.js";
 import { adminApi } from "./routes/admin.js";
-import { appApi, launch, loadUser, userApi } from "./routes/portal.js";
+import { appApi, hitpayWebhook, launch, loadUser, userApi } from "./routes/portal.js";
 
 const publicDir = path.resolve(import.meta.dirname, "../public");
 
@@ -34,6 +34,7 @@ export async function createApp(opts: { identify?: IdentityProvider } = {}) {
 
   // App-to-portal API: no browser session, authenticated by the app secret.
   app.use("/api/apps", express.json({ limit: "10kb" }), appApi);
+  app.post("/api/hitpay/webhook", express.raw({ type: () => true, limit: "64kb" }), hitpayWebhook);
 
   app.use(express.json({ limit: "100kb" }));
   app.use(loadUser(opts.identify ?? clerkIdentity()));

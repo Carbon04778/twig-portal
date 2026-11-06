@@ -23,6 +23,8 @@ export const migrationsFolder = path.resolve(import.meta.dirname, "../../drizzle
 // changes are already in the database. Every new migration needs an entry here; a test checks.
 export const MIGRATION_MARKERS: Record<string, string> = {
   "0000_init": "select to_regclass('public.users') is not null and to_regclass('public.launch_codes') is not null",
+  "0001_signup_tracking_payments": "select to_regclass('public.student_profiles') is not null and to_regclass('public.app_sessions') is not null and to_regclass('public.settings') is not null and to_regclass('public.payments') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'paid_until')",
+  "0002_app_events": "select to_regclass('public.app_events') is not null",
 };
 
 export function journalTags(folder = migrationsFolder): string[] {

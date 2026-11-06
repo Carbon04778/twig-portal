@@ -39,6 +39,62 @@ Per-user exceptions (always allow / block one app) override the role. Revoked us
 6. Publish (Autoscale, max 1 instance, **Public** sharing, development data not copied).
 7. Donnell signs in at the published address with his Google account and opens **Admin**.
 
+## Sign-up details and Google Sheet
+
+New users fill in a required form before they can open apps (admins are exempt). Answers are saved in
+the database first, then added to the Sheet, so a Sheet problem never blocks a student. Missed rows go
+with the next sign-up or from Admin → Sign-ups, which also has a CSV download.
+
+Connect Google Sheets through Replit Integrations; the connected Google account needs edit access to
+the sheet. Secrets: `GOOGLE_SHEET_ID` (the part between `/d/` and `/edit` in its link) and, optionally,
+`GOOGLE_SHEET_TAB`. Keep the sheet's sharing Restricted: it holds students' personal details.
+
+## Usage tracking
+
+Each finished visit is also added to an "App activity" tab in the Google Sheet (created automatically).
+A visit counts as finished 35 minutes after its last check-in. Sends run at most every 15 minutes while
+the apps are in use, or from Admin → Usage. Sign-ups go to the first tab unless `GOOGLE_SHEET_TAB` is set,
+so keep that tab first.
+
+Admin → Usage shows opens and estimated time per app and per student. Opens are recorded at launch.
+Time comes from each app's access re-checks (`connector/portalAuth.ts`). Apps with an older copy of
+that file re-check every 30 minutes, so short visits show as "under 5 min" until the file is re-copied
+and the app republished.
+
+## Exams and Claude use
+
+Apps report what happens inside them to `POST /api/apps/events`. Admin → Usage shows one line per exam
+attempt, plus Claude and voice use by app and by student. Every event also goes to the Sheet's "Exams and
+Claude" tab, and to a CSV download, with its timestamp. To add this to a connected app, from its project root:
+
+```sh
+node /tmp/twig-portal/connector/install-tracking.mjs --app <paper1|alevel-mcq|review|worksheets> --web artifacts/<web-app>
+```
+
+It changes nothing unless the code it expects is found exactly once. Then typecheck, commit and publish.
+
+- The apps have no Pause button. "Stepped away" means the exam page was hidden or closed for 20 seconds or
+  more, and the exam clock keeps running.
+- Claude and voice counts are successful requests from the app's server, so a student can't add to them. A
+  repeated question answered from the app's cache still counts as a use, so this is not a bill.
+- Practice exam steps and scores come from the student's browser, so treat them as a guide, not as proof.
+- A class test that ends at its deadline without the student pressing Submit shows "Not finished" here. The
+  app itself holds the real result.
+
+## Payment (HitPay)
+
+Off until switched on in Admin → Payment. Payment gives the same access as a student code until
+`users.paid_until`, then the student is free again; nothing has to run for that to happen.
+
+Secrets: `HITPAY_API_KEY`, `HITPAY_SALT`, `HITPAY_WEBHOOK_SALT`, and `HITPAY_MODE=live` for real money
+(anything else uses HitPay's sandbox). In HitPay: Developers → Webhook Endpoints → New Webhook, with URL
+`https://<portal>/api/hitpay/webhook` and event `payment_request.completed`. Its salt, on that webhook's
+own page, is `HITPAY_WEBHOOK_SALT`.
+
+Access is only given after the portal asks HitPay directly that the request is completed for the full
+amount. The webhook and the student's return link just prompt that check. Refunds are made in HitPay's
+dashboard; "Mark refunded" in the admin panel then ends the access.
+
 ## Connecting an app
 
 1. Portal admin → **Apps** → add the app (ID such as `paper1`, name, its `https://….replit.app`

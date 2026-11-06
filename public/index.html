@@ -82,6 +82,23 @@
     </header>
 
     <main class="home">
+      <!-- First visit: required details before the apps -->
+      <section class="profile-view" id="profile-view" hidden>
+        <form class="profile-card" id="profile-form">
+          <h1>Complete your sign-up</h1>
+          <p class="muted">Just a few details before you see your apps. All fields are required.</p>
+          <label>Name<input id="pf-name" name="full_name" required minlength="2" maxlength="100" autocomplete="name"></label>
+          <label>School<input name="school" required minlength="2" maxlength="100" autocomplete="organization"></label>
+          <label>Level<select id="pf-level" name="level" required></select></label>
+          <label>A Level exam year<select id="pf-exam-year" name="exam_year" required></select></label>
+          <label>Mobile<input name="mobile" type="tel" required maxlength="24" autocomplete="tel" inputmode="tel" placeholder="e.g. 8123 4567"></label>
+          <label>Where did you hear about us?<select id="pf-heard" name="heard_from" required></select></label>
+          <p class="consent small" id="pf-consent"></p>
+          <div id="pf-error" role="alert"></div>
+          <button class="btn" type="submit">Submit</button>
+        </form>
+      </section>
+
       <div class="home-content" id="home-content">
         <section class="intro">
           <span class="pill" id="role-pill">
@@ -89,7 +106,18 @@
             <span id="role-pill-text"></span>
           </span>
           <h1 id="hello"></h1>
-          <p>Practise a paper, test with timed trial, revise key ideas, or get feedback on a marked script.</p>
+          <p id="intro-text"></p>
+        </section>
+
+        <section class="pay-box" id="pay-box" hidden>
+          <div class="pay-main">
+            <div>
+              <strong id="pay-title"></strong>
+              <div class="pay-price"><span id="pay-price"></span> <s class="muted" id="pay-was"></s> <span class="muted" id="pay-period"></span></div>
+            </div>
+            <button class="btn" type="button" id="pay-button">Pay now</button>
+          </div>
+          <div class="pay-policy small"><strong>Refund policy</strong><p id="pay-refund"></p></div>
         </section>
 
         <form class="code-box" id="code-form" hidden>

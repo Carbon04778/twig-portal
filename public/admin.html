@@ -33,7 +33,11 @@
         <button data-tab="users" class="active">Users</button>
         <button data-tab="codes">Student codes</button>
         <button data-tab="apps">Apps</button>
-        <button data-tab="activity">Activity</button>
+        <button data-tab="signups">Sign-ups</button>
+        <button data-tab="usage">Usage</button>
+        <button data-tab="content">Page text</button>
+        <button data-tab="payment">Payment</button>
+        <button data-tab="activity">Admin log</button>
       </nav>
 
       <!-- Users -->
@@ -84,7 +88,66 @@
         </details>
       </div>
 
-      <!-- Activity -->
+      <!-- Sign-ups -->
+      <div id="tab-signups" hidden>
+        <div class="row">
+          <a class="btn small ghost" href="/api/admin/signups.csv">Download CSV</a>
+          <button class="btn small ghost" id="signups-sync" type="button">Send missed rows to Google Sheet</button>
+          <span class="muted small" id="signups-status"></span>
+        </div>
+        <div class="table-scroll"><table><thead><tr><th>Signed up</th><th>Name</th><th>Mobile</th><th>School</th><th>Level</th><th>Exam year</th><th>Heard from</th><th>Google Sheet</th></tr></thead><tbody id="signups"></tbody></table></div>
+      </div>
+
+      <!-- Usage -->
+      <div id="tab-usage" hidden>
+        <div class="row">
+          <select id="usage-days" aria-label="Period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 12 months</option></select>
+          <a class="btn small ghost" id="usage-csv" href="/api/admin/usage.csv?days=30">Download CSV</a>
+          <button class="btn small ghost" id="usage-sync" type="button">Send activity to Google Sheet</button>
+          <span class="muted small" id="usage-status"></span>
+        </div>
+        <p class="muted small">Your own admin account isn't counted. Opens are exact. Time is an estimate: it runs from opening an app to the last time that app checked in with the portal. Each visit reaches the Sheet's "App activity" tab about an hour after it ends.</p>
+        <h2 style="font-size:18px">Most used apps</h2>
+        <div class="table-scroll"><table><thead><tr><th>App</th><th>Opens</th><th>Students</th><th>Time</th></tr></thead><tbody id="usage-apps"></tbody></table></div>
+        <h2 style="font-size:18px;margin-top:24px">By student</h2>
+        <div class="table-scroll"><table><thead><tr><th>Student</th><th>Opens</th><th>Time</th><th>Apps</th><th>Last active</th></tr></thead><tbody id="usage-students"></tbody></table></div>
+        <div class="row" style="margin-top:32px">
+          <h2 style="font-size:18px;margin:0">Exams</h2>
+          <a class="btn small ghost" id="events-csv" href="/api/admin/events.csv?days=30">Download exam and Claude log</a>
+        </div>
+        <p class="muted small">Reported by each app once it has the latest connector. "Stepped away" means the exam page was hidden or closed for 20 seconds or more; the exam clock keeps running.</p>
+        <div class="table-scroll"><table><thead><tr><th>Student</th><th>Exam</th><th>Started</th><th>Ended</th><th>Result</th><th>Score</th><th>Stepped away</th></tr></thead><tbody id="usage-exams"></tbody></table></div>
+        <h2 style="font-size:18px;margin-top:24px">Claude and voice use by app</h2>
+        <div class="table-scroll"><table><thead><tr><th>App</th><th>Used for</th><th>Uses</th><th>Students</th></tr></thead><tbody id="usage-ai-apps"></tbody></table></div>
+        <h2 style="font-size:18px;margin-top:24px">Claude and voice use by student</h2>
+        <div class="table-scroll"><table><thead><tr><th>Student</th><th>Claude</th><th>Voice</th><th>Last used</th></tr></thead><tbody id="usage-ai-students"></tbody></table></div>
+      </div>
+
+      <!-- Page text -->
+      <div id="tab-content" hidden>
+        <p class="muted">Edit the words students see on the apps page, then press Save. Changes show the next time a student opens or refreshes the page.</p>
+        <form id="content-form" class="stack"></form>
+      </div>
+
+      <!-- Payment -->
+      <div id="tab-payment" hidden>
+        <div id="payment-warning"></div>
+        <form class="card stack" id="payment-form">
+          <label class="switch-row"><input type="checkbox" name="enabled"> Payment is switched on</label>
+          <p class="muted small" style="margin:0">While this is off, students see no price and nothing can be charged. Student codes work either way, and anyone who has already paid keeps their access until it ends.</p>
+          <div class="form-grid">
+            <label>Price (S$)<input name="price" type="number" min="1" step="0.01" required></label>
+            <label>Crossed-out price (S$, optional)<input name="compare_at" type="number" min="0" step="0.01"></label>
+            <label>Access lasts (months)<input name="months" type="number" min="1" max="60" required></label>
+          </div>
+          <label class="field">Refund policy shown before paying<textarea name="refund_policy" rows="6" maxlength="2000" required></textarea></label>
+          <div><button class="btn">Save</button></div>
+        </form>
+        <h2 style="font-size:18px;margin-top:24px">Payments</h2>
+        <div class="table-scroll"><table><thead><tr><th>Started</th><th>Student</th><th>Amount</th><th>Status</th><th>Access until</th><th></th></tr></thead><tbody id="payments"></tbody></table></div>
+      </div>
+
+      <!-- Admin log -->
       <div id="tab-activity" hidden>
         <table><thead><tr><th>When</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody id="activity"></tbody></table>
       </div>
