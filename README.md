@@ -39,6 +39,37 @@ Per-user exceptions (always allow / block one app) override the role. Revoked us
 6. Publish (Autoscale, max 1 instance, **Public** sharing, development data not copied).
 7. Donnell signs in at the published address with his Google account and opens **Admin**.
 
+## Sign-up details and Google Sheet
+
+New users fill in a required form before they can open apps (admins are exempt). Answers are saved in
+the database first, then added to the Sheet, so a Sheet problem never blocks a student. Missed rows go
+with the next sign-up or from Admin → Sign-ups, which also has a CSV download.
+
+Connect Google Sheets through Replit Integrations; the connected Google account needs edit access to
+the sheet. Secrets: `GOOGLE_SHEET_ID` (the part between `/d/` and `/edit` in its link) and, optionally,
+`GOOGLE_SHEET_TAB`. Keep the sheet's sharing Restricted: it holds students' personal details.
+
+## Usage tracking
+
+Admin → Usage shows opens and estimated time per app and per student. Opens are recorded at launch.
+Time comes from each app's access re-checks (`connector/portalAuth.ts`). Apps with an older copy of
+that file re-check every 30 minutes, so short visits show as "under 5 min" until the file is re-copied
+and the app republished.
+
+## Payment (HitPay)
+
+Off until switched on in Admin → Payment. Payment gives the same access as a student code until
+`users.paid_until`, then the student is free again; nothing has to run for that to happen.
+
+Secrets: `HITPAY_API_KEY`, `HITPAY_SALT`, `HITPAY_WEBHOOK_SALT`, and `HITPAY_MODE=live` for real money
+(anything else uses HitPay's sandbox). In HitPay: Developers → Webhook Endpoints → New Webhook, with URL
+`https://<portal>/api/hitpay/webhook` and event `payment_request.completed`. Its salt, on that webhook's
+own page, is `HITPAY_WEBHOOK_SALT`.
+
+Access is only given after the portal asks HitPay directly that the request is completed for the full
+amount. The webhook and the student's return link just prompt that check. Refunds are made in HitPay's
+dashboard; "Mark refunded" in the admin panel then ends the access.
+
 ## Connecting an app
 
 1. Portal admin → **Apps** → add the app (ID such as `paper1`, name, its `https://….replit.app`

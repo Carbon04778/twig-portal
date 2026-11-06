@@ -41,7 +41,10 @@ const ROLE_LABEL = { public: "Free", student: "Student", admin: "Admin" };
 let appsCache = [];
 
 // ---- Tabs ------------------------------------------------------------------------------
-const loaders = { users: loadUsers, codes: loadCodes, apps: loadApps, activity: loadActivity };
+const loaders = {
+  users: loadUsers, codes: loadCodes, apps: loadApps, signups: loadSignups, usage: loadUsage,
+  content: loadContent, payment: loadPayment, activity: loadActivity,
+};
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   for (const name of Object.keys(loaders)) $(`tab-${name}`).hidden = name !== b.dataset.tab;
@@ -116,7 +119,8 @@ function userRow(u) {
   return el("tr", { class: revoked ? "dim" : "" },
     el("td", {}, el("strong", {}, u.name || "(no name)"), el("div", { class: "muted small" }, u.email),
       revoked ? el("div", { class: "small", style: "color:var(--danger)" }, "Access revoked") : null),
-    el("td", {}, role, u.studentSince ? el("div", { class: "muted small" }, `student since ${date(u.studentSince)}`) : null),
+    el("td", {}, role, u.studentSince ? el("div", { class: "muted small" }, `student since ${date(u.studentSince)}`) : null,
+      u.role === "public" && u.paidUntil && new Date(u.paidUntil) > new Date() ? el("div", { class: "small" }, `Paid until ${date(u.paidUntil)}`) : null),
     el("td", {}, exceptions),
     el("td", { class: "small" }, dateTime(u.lastSeenAt)),
     el("td", {}, toggle));
@@ -179,20 +183,18 @@ async function loadApps() {
   $("apps").replaceChildren(...appsCache.map((a) => {
     const patch = async (body) => { await api(`/apps/${a.id}`, { method: "PATCH", body }); toast("Saved"); loadApps(); };
     const edit = async () => {
-      const name = prompt("App name", a.name);
+      const name = prompt("App name in this admin panel. To change what students see, use the Page text tab.", a.name);
       if (name === null) return;
-      const description = prompt("Short description (shown on the tile)", a.description);
-      if (description === null) return;
       const url = prompt("Address (https://….replit.app)", a.url);
       if (url === null) return;
-      await patch({ name: name.trim(), description: description.trim(), url: url.trim() });
+      await patch({ name: name.trim(), url: url.trim() });
     };
     return el("tr", { class: a.enabled ? "" : "dim" },
       el("td", {}, el("input", {
         type: "number", value: a.sortOrder, style: "width:4.5em", "aria-label": "Order",
         onchange: (e) => patch({ sort_order: Number(e.target.value) || 0 }),
       })),
-      el("td", {}, el("strong", {}, a.name), el("div", { class: "muted small" }, a.id), el("div", { class: "small" }, a.description),
+      el("td", {}, el("strong", {}, a.name), el("div", { class: "muted small" }, a.id),
         el("button", { class: "btn small ghost", style: "margin-top:6px", onclick: edit }, "Edit")),
       el("td", { class: "small" }, el("a", { href: a.url, target: "_blank", rel: "noopener" }, a.url.replace(/^https:\/\//, ""))),
       el("td", {}, el("input", { type: "checkbox", checked: a.publicAccess, "aria-label": "Free for everyone", onchange: (e) => patch({ public_access: e.target.checked }) })),
@@ -230,7 +232,178 @@ $("app-form").addEventListener("submit", async (e) => {
   loadApps();
 });
 
-// ---- Activity --------------------------------------------------------------------------
+const emptyRow = (cols, text) => el("tr", {}, el("td", { colspan: cols, class: "muted" }, text));
+
+// ---- Sign-ups --------------------------------------------------------------------------
+async function loadSignups() {
+  const { data, sheetIsSet } = await api("/signups");
+  const waiting = data.filter((r) => !r.sheetSyncedAt).length;
+  $("signups-status").textContent = !sheetIsSet ? "Google Sheet isn't connected yet. Details are safely saved here."
+    : waiting ? `${waiting} not in the sheet yet` : `${data.length} sign-up${data.length === 1 ? "" : "s"}, all in the sheet`;
+  $("signups").replaceChildren(...data.map((r) => el("tr", {},
+    el("td", { class: "small" }, dateTime(r.createdAt)),
+    el("td", {}, el("strong", {}, r.fullName), el("div", { class: "muted small" }, r.email)),
+    el("td", {}, r.mobile), el("td", {}, r.school), el("td", {}, r.level), el("td", {}, r.heardFrom),
+    el("td", { class: "small" }, r.sheetSyncedAt ? "Sent" : r.sheetError ? `Not sent: ${r.sheetError}` : "Waiting"))));
+  if (!data.length) $("signups").append(emptyRow(7, "No sign-ups yet."));
+}
+
+$("signups-sync").addEventListener("click", async () => {
+  const { data } = await api("/signups/sync", { method: "POST", body: {} });
+  const text = {
+    sent: `Sent ${data.sent} row${data.sent === 1 ? "" : "s"} to the sheet`, nothing_to_send: "Nothing to send: the sheet is up to date",
+    not_configured: "GOOGLE_SHEET_ID isn't set yet", failed: `Couldn't send: ${data.message}`,
+  }[data.status];
+  toast(text, data.status === "failed" || data.status === "not_configured");
+  loadSignups();
+});
+
+// ---- Usage -----------------------------------------------------------------------------
+const duration = (m) => (!m ? "under 5 min" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`);
+
+async function loadUsage() {
+  const days = $("usage-days").value;
+  $("usage-csv").href = `/api/admin/usage.csv?days=${days}`;
+  const { byApp, students } = await api(`/usage?days=${days}`);
+  $("usage-apps").replaceChildren(...byApp.map((a) => el("tr", {},
+    el("td", {}, el("strong", {}, a.title)), el("td", {}, String(a.opens)), el("td", {}, String(a.students)), el("td", {}, duration(a.minutes)))));
+  if (!byApp.length) $("usage-apps").append(emptyRow(4, "No app has been opened in this period."));
+  $("usage-students").replaceChildren(...students.map((s) => el("tr", {},
+    el("td", {}, el("strong", {}, s.name), el("div", { class: "muted small" }, [s.school, s.level].filter(Boolean).join(" · ") || s.email)),
+    el("td", {}, String(s.opens)), el("td", {}, duration(s.minutes)),
+    el("td", { class: "small" }, s.apps.map((a) => `${a.title}: ${a.opens} open${a.opens === 1 ? "" : "s"}, ${duration(a.minutes)}`).join("; ")),
+    el("td", { class: "small" }, dateTime(s.lastActive)))));
+  if (!students.length) $("usage-students").append(emptyRow(5, "No student activity in this period."));
+}
+$("usage-days").addEventListener("change", loadUsage);
+
+// ---- Page text -------------------------------------------------------------------------
+function field(label, name, value, { max, required, rows } = {}) {
+  const input = rows
+    ? el("textarea", { name, rows, maxlength: max, required }, value ?? "")
+    : el("input", { name, value: value ?? "", maxlength: max, required });
+  return el("label", {}, label, input);
+}
+
+async function loadContent() {
+  const [{ data }, appList] = await Promise.all([api("/content"), api("/apps")]);
+  const enabled = new Set(appList.data.filter((a) => a.enabled).map((a) => a.id));
+  const groups = [el("div", { class: "card edit-group" }, el("h3", {}, "Top of the page"), field("Welcome text", "intro", data.intro, { max: 300, rows: 2 }))];
+  for (const s of data.sections) {
+    const ids = s.ids.filter((id) => enabled.has(id));
+    if (s.id === "more" && !ids.length) {
+      groups.push(el("input", { type: "hidden", name: "section.more.title", value: s.title }), el("input", { type: "hidden", name: "section.more.note", value: s.note }));
+      continue;
+    }
+    groups.push(el("div", { class: "card edit-group" },
+      el("h3", {}, `Section: ${s.title}`),
+      field("Section title", `section.${s.id}.title`, s.title, { max: 80, required: true }),
+      field("Section note", `section.${s.id}.note`, s.note, { max: 160 }),
+      ...ids.map((id) => {
+        const a = data.apps[id];
+        return el("div", { class: "edit-group", style: "border-top:1px solid var(--line);padding-top:12px" },
+          el("h3", {}, a.title),
+          field("Heading", `app.${id}.title`, a.title, { max: 100, required: true }),
+          field("Description", `app.${id}.text`, a.text, { max: 300, rows: 2 }),
+          field("Tags (separate with commas)", `app.${id}.tags`, a.tags.join(", ")),
+          field("Label on the coloured tile", `app.${id}.label`, a.label, { max: 40 }),
+          field("Button text", `app.${id}.cta`, a.cta, { max: 30, required: true }));
+      })));
+  }
+  // Text for apps that are switched off is kept as it is.
+  const hidden = Object.keys(data.apps).filter((id) => !enabled.has(id));
+  contentHidden = Object.fromEntries(hidden.map((id) => [id, data.apps[id]]));
+  groups.push(el("div", { class: "row" },
+    el("button", { class: "btn" }, "Save"),
+    el("button", {
+      class: "btn ghost", type: "button",
+      onclick: async () => {
+        if (!confirm("Go back to the original wording for the whole apps page?")) return;
+        await api("/content", { method: "DELETE" });
+        toast("Original wording restored");
+        loadContent();
+      },
+    }, "Restore original wording"),
+    el("a", { class: "btn ghost", href: "/", target: "_blank", rel: "noopener" }, "View apps page")));
+  $("content-form").replaceChildren(...groups);
+}
+let contentHidden = {};
+
+$("content-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { intro: "", sections: {}, apps: structuredClone(contentHidden) };
+  for (const [name, value] of new FormData(e.target)) {
+    const [kind, ...rest] = name.split(".");
+    if (kind === "intro") { body.intro = value; continue; }
+    const key = rest.pop();
+    const id = rest.join(".");
+    const bucket = kind === "section" ? body.sections : body.apps;
+    bucket[id] ??= {};
+    bucket[id][key] = key === "tags" ? value.split(",").map((t) => t.trim()).filter(Boolean) : value;
+  }
+  await api("/content", { method: "PUT", body });
+  toast("Saved");
+  loadContent();
+});
+
+// ---- Payment ---------------------------------------------------------------------------
+const PAY_STATUS = { pending: "Not paid yet", completed: "Paid", refunded: "Refunded" };
+
+function renderPayment(data) {
+  const f = $("payment-form");
+  f.elements.enabled.checked = data.settings.enabled;
+  f.elements.price.value = (data.settings.priceCents / 100).toFixed(2);
+  f.elements.compare_at.value = data.settings.compareAtCents ? (data.settings.compareAtCents / 100).toFixed(2) : "";
+  f.elements.months.value = data.settings.months;
+  f.elements.refund_policy.value = data.settings.refundPolicy;
+  const h = data.hitpay;
+  $("payment-warning").replaceChildren(...(
+    !h.keyIsSet ? [el("div", { class: "notice", style: "margin-bottom:14px" }, "HitPay isn't set up yet: add its API key to Secrets, then republish.")]
+      : h.mode === "sandbox" ? [el("div", { class: "notice", style: "margin-bottom:14px" }, "HitPay is in test mode. No real money moves.")] : []));
+  $("payments").replaceChildren(...data.payments.map((p) => el("tr", {},
+    el("td", { class: "small" }, dateTime(p.createdAt)),
+    el("td", {}, el("strong", {}, p.name || p.email), el("div", { class: "muted small" }, p.email)),
+    el("td", {}, `${p.currency} ${(p.amountCents / 100).toFixed(2)}`),
+    el("td", {}, PAY_STATUS[p.status] ?? p.status),
+    el("td", { class: "small" }, p.status === "completed" ? date(p.accessUntil) : ""),
+    el("td", {}, p.status === "pending" ? el("button", {
+      class: "btn small ghost",
+      onclick: async () => {
+        const r = await api(`/payments/${p.id}/check`, { method: "POST", body: {} });
+        toast(r.status === "completed" ? "Paid: access given" : "HitPay says this isn't paid yet");
+        renderPayment(r.data);
+      },
+    }, "Check with HitPay") : p.status === "completed" ? el("button", {
+      class: "btn small danger",
+      onclick: async () => {
+        if (!confirm(`End the access from this payment for ${p.email}? Please make the refund itself in your HitPay dashboard.`)) return;
+        renderPayment((await api(`/payments/${p.id}/refund`, { method: "POST", body: {} })).data);
+        toast("Marked as refunded");
+      },
+    }, "Mark refunded") : ""))));
+  if (!data.payments.length) $("payments").append(emptyRow(6, "No payments yet."));
+}
+
+async function loadPayment() {
+  renderPayment((await api("/payment")).data);
+}
+
+$("payment-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  if (f.enabled.checked && !confirm("Switch payment on? Students will see the price and can pay real money.")) return;
+  const { data } = await api("/payment", {
+    method: "PUT",
+    body: {
+      enabled: f.enabled.checked, price: Number(f.price.value), compare_at: f.compare_at.value ? Number(f.compare_at.value) : null,
+      months: Number(f.months.value), refund_policy: f.refund_policy.value,
+    },
+  });
+  toast("Saved");
+  renderPayment(data);
+});
+
+// ---- Admin log -------------------------------------------------------------------------
 async function loadActivity() {
   const { data } = await api("/audit");
   $("activity").replaceChildren(...data.map((a) => el("tr", {},

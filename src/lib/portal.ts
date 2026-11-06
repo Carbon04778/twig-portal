@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { apps, auditLog, launchCodes, promoCodes, promoRedemptions, userAppAccess, users } from "../db/schema.js";
-import { canOpen, normalizePromoCode, promoProblem, type PromoProblem } from "./access.js";
+import { canOpen, effectiveRole, normalizePromoCode, promoProblem, type PromoProblem } from "./access.js";
 
 export const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 export const LAUNCH_CODE_TTL_MS = 60_000;
@@ -107,7 +107,7 @@ export async function exchangeLaunchCode(db: Db, appId: string, appSecret: strin
   if (!used) return { ok: false, status: 400, error: "invalid_or_expired_code" };
   const [user] = await db.select().from(users).where(eq(users.id, used.userId));
   if (!user || !(await userCanOpen(db, user, appId))) return { ok: false, status: 403, error: "no_access" };
-  return { ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+  return { ok: true, user: { id: user.id, email: user.email, name: user.name, role: effectiveRole(user) } };
 }
 
 // Lets an app re-check a session it already holds (e.g. every few hours).
@@ -118,7 +118,7 @@ export async function checkUserAccess(db: Db, appId: string, appSecret: string, 
   }
   const [user] = await db.select().from(users).where(eq(users.id, userId));
   const allowed = !!user && !!(await userCanOpen(db, user, appId));
-  return { ok: true as const, allowed, role: user?.role ?? null };
+  return { ok: true as const, allowed, role: user ? effectiveRole(user) : null };
 }
 
 export function generateSecret(prefix: string) {

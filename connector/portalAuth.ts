@@ -29,7 +29,7 @@ interface Session extends PortalUser {
 
 const COOKIE = "twig_portal";
 const SESSION_MS = 12 * 60 * 60 * 1000;
-const RECHECK_MS = 30 * 60 * 1000;
+const RECHECK_MS = 5 * 60 * 1000; // also how the portal estimates time spent in the app
 
 function config() {
   const url = process.env.PORTAL_URL?.replace(/\/+$/, "");
@@ -89,7 +89,7 @@ async function portalPost(path: string, body: unknown) {
 }
 
 // ---- Middleware ------------------------------------------------------------------------
-// Reads the session and, every 30 minutes, asks the portal whether the user still has access.
+// Reads the session and, every 5 minutes, asks the portal whether the user still has access.
 export async function portalSession(req: Request, res: Response, next: NextFunction) {
   try {
     let s = unseal(readCookie(req));

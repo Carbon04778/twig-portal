@@ -48,64 +48,34 @@ async function api(path, init) {
 }
 
 // ---- Card design for each Twig app -----------------------------------------------------
-// Wording and colours for the six main apps live here, keyed by the app's ID in Admin → Apps.
-// (Name and description set in Admin are not used for these six.) Any other app you add later
-// shows up under "More apps" with the name and description from Admin.
-const SECTIONS = [
-  { title: "Practise papers", note: "Timed practice and topical papers", ids: ["paper1", "alevel-mcq", "worksheets"] },
-  { title: "Learn & revise", note: "Key ideas and commonly tested questions", ids: ["question-bank", "definitions"] },
-  { title: "Get feedback", note: "Turn your scripts into a plan for an A", ids: ["review"], wide: true },
-];
-
+// Colours and symbols for the six main apps live here, keyed by the app's ID in Admin → Apps.
+// The wording comes from the server and is edited in Admin → Page text.
 const APP_DESIGN = {
-  paper1: {
-    n: 1, symbol: "Pm", label: "Prelim MCQ", title: "Prelim MCQ Practice",
-    text: "Timed practice for Prelim MCQ with worked solutions and voice explanations.",
-    tags: ["Timed", "Voice"], colors: ["#D9412F", "#F28C4A"], on: "#FFFFFF", chip: ["#A23A21", "#FBE5DC"],
-  },
-  "alevel-mcq": {
-    n: 2, symbol: "Mq", label: "A-Level MCQ", title: "A-Level MCQ Practice",
-    text: "Timed practice for A-Level MCQ with worked solutions.",
-    tags: ["Timed", "Worked solutions"], colors: ["#EBC65E", "#8FD68F"], on: "#2A345E", chip: ["#3F6B22", "#E6F2D8"],
-  },
-  worksheets: {
-    n: 3, symbol: "Tp", label: "Topical", title: "Topical Prelim Practice",
-    text: "Build topical prelim practice papers, complete with mark schemes.",
-    tags: ["Topical", "Mark scheme"], colors: ["#6474F0", "#D673C3"], on: "#FFFFFF", chip: ["#5B3FB0", "#ECE6FA"],
-  },
-  "question-bank": {
-    n: 4, symbol: "Eh", label: "Hotspots", title: "H2 Chem Exam Hotspots",
-    text: "The most-tested H2 Chemistry questions, all in one app.",
-    tags: ["Most tested"], colors: ["#4FCFC0", "#B6E57E"], on: "#2A345E", chip: ["#1F6E64", "#DDF3EF"],
-  },
-  definitions: {
-    n: 5, symbol: "Dh", label: "Definitions", title: "H2 Chemistry Definitions Handbook",
-    text: "Learn and test yourself on key chemistry definitions.",
-    tags: ["Flashcards", "Self-test"], colors: ["#FF8FA3", "#FFD07A"], on: "#2A345E", chip: ["#A8324F", "#FDE3E8"],
-  },
-  review: {
-    n: 6, symbol: "Ms", label: "Mark Script", title: "Mark My Script",
-    text: "Upload your marked or unmarked script for detailed feedback and a personal roadmap to get an A.",
-    tags: [], colors: ["#5B4BDB", "#3A9BE8"], on: "#FFFFFF", chip: ["#2A345E", "#EDE6D8"], cta: "Upload a script",
-  },
+  paper1: { n: 1, symbol: "Pm", colors: ["#D9412F", "#F28C4A"], on: "#FFFFFF", chip: ["#A23A21", "#FBE5DC"] },
+  "alevel-mcq": { n: 2, symbol: "Mq", colors: ["#EBC65E", "#8FD68F"], on: "#2A345E", chip: ["#3F6B22", "#E6F2D8"] },
+  worksheets: { n: 3, symbol: "Tp", colors: ["#6474F0", "#D673C3"], on: "#FFFFFF", chip: ["#5B3FB0", "#ECE6FA"] },
+  "question-bank": { n: 4, symbol: "Eh", colors: ["#4FCFC0", "#B6E57E"], on: "#2A345E", chip: ["#1F6E64", "#DDF3EF"] },
+  definitions: { n: 5, symbol: "Dh", colors: ["#FF8FA3", "#FFD07A"], on: "#2A345E", chip: ["#A8324F", "#FDE3E8"] },
+  review: { n: 6, symbol: "Ms", colors: ["#5B4BDB", "#3A9BE8"], on: "#FFFFFF", chip: ["#2A345E", "#EDE6D8"] },
 };
 
-// Look for any other app: initials from its name, a calm navy-family colour, and Admin's wording.
+// Look for any other app: initials from its name and a calm navy-family colour.
 const EXTRA_COLORS = [["#273561", "#4F63B5"], ["#2F6B47", "#8FD68F"], ["#7A4BB0", "#C98BD9"]];
 function extraDesign(app, index) {
   const words = app.name.trim().split(/\s+/);
   const second = words[1]?.[0] ?? words[0]?.[1] ?? "";
   return {
     n: 7 + index, symbol: (words[0]?.[0] ?? "?").toUpperCase() + second.toLowerCase(),
-    label: app.name, title: app.name, text: app.description || "", tags: [],
     colors: EXTRA_COLORS[index % EXTRA_COLORS.length], on: "#FFFFFF", chip: ["#2A345E", "#EDE6D8"],
   };
 }
 
+let paymentOn = false; // changes the wording on locked cards
+
 function appCard(app, design, { wide = false } = {}) {
   const locked = !app.canOpen;
   const attrs = { class: `app-card${wide ? " wide" : ""}${locked ? " locked" : ""}` };
-  if (locked) { attrs["aria-disabled"] = "true"; attrs.title = "Enter a student code to unlock this app"; }
+  if (locked) { attrs["aria-disabled"] = "true"; attrs.title = paymentOn ? "Enter a student code or pay to unlock this app" : "Enter a student code to unlock this app"; }
   else attrs.href = `/launch/${encodeURIComponent(app.id)}`;
   const card = el(locked ? "div" : "a", attrs);
   if (design.chip) { card.style.setProperty("--chip-fg", design.chip[0]); card.style.setProperty("--chip-bg", design.chip[1]); }
@@ -141,17 +111,17 @@ function section(title, note, cards, { wide = false } = {}) {
   );
 }
 
-function renderSections(apps) {
+function renderSections(apps, content) {
   const byId = new Map(apps.map((a) => [a.id, a]));
-  const used = new Set();
   const out = [];
-  for (const s of SECTIONS) {
-    const here = s.ids.map((id) => byId.get(id)).filter(Boolean);
-    here.forEach((a) => used.add(a.id));
-    if (here.length) out.push(section(s.title, s.note, here.map((a) => appCard(a, APP_DESIGN[a.id], { wide: !!s.wide })), { wide: !!s.wide }));
+  let extras = 0;
+  for (const s of content.sections) {
+    const cards = s.ids.map((id) => byId.get(id)).filter(Boolean).map((a) => {
+      const look = APP_DESIGN[a.id] ?? extraDesign(a, extras++);
+      return appCard(a, { ...look, ...content.apps[a.id] }, { wide: s.wide });
+    });
+    if (cards.length) out.push(section(s.title, s.note, cards, { wide: s.wide }));
   }
-  const rest = apps.filter((a) => !used.has(a.id));
-  if (rest.length) out.push(section("More apps", "Also available on your account", rest.map((a, i) => appCard(a, extraDesign(a, i)))));
   if (!out.length) out.push(el("p", { class: "muted" }, "No apps are available yet."));
   $("sections").replaceChildren(...out);
 }
@@ -176,16 +146,51 @@ function showHome() {
   $("signed-in").hidden = false;
 }
 
-function render({ user, apps }) {
+const longDate = (d) => new Date(d).toLocaleDateString("en-SG", { day: "numeric", month: "short", year: "numeric" });
+const money = (cents, currency) => `${currency === "SGD" ? "S$" : `${currency} `}${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`;
+
+function renderPayBox(payment, user) {
+  const offer = payment?.offer;
+  paymentOn = !!offer;
+  $("pay-box").hidden = !offer;
+  if (!offer) return;
+  $("pay-title").textContent = user.paidUntil && user.role === "student" ? "Renew your full access" : "Get full access to every app";
+  $("pay-price").textContent = money(offer.priceCents, offer.currency);
+  $("pay-was").textContent = offer.compareAtCents > offer.priceCents ? money(offer.compareAtCents, offer.currency) : "";
+  $("pay-period").textContent = `for ${offer.months} months. One-time payment.`;
+  $("pay-refund").textContent = offer.refundPolicy;
+}
+
+function showProfileForm(data) {
   showHome();
+  $("home-content").hidden = true;
+  $("profile-view").hidden = false;
+  $("who-id").hidden = false;
+  $("who-name").textContent = data.user.name || data.user.email;
+  $("avatar").textContent = initials(data.user);
+  $("admin-link").hidden = true;
+  const options = (list, prompt) => [el("option", { value: "", selected: true, disabled: true }, prompt), ...list.map((v) => el("option", { value: v }, v))];
+  $("pf-level").replaceChildren(...options(data.profileForm.levels, "Choose your level"));
+  $("pf-heard").replaceChildren(...options(data.profileForm.heardFrom, "Choose one"));
+  $("pf-consent").textContent = data.profileForm.consent;
+  if (!$("pf-name").value) $("pf-name").value = data.user.name ?? "";
+}
+
+function render({ user, apps, content, payment }) {
+  showHome();
+  $("profile-view").hidden = true;
   $("home-content").hidden = false;
   $("who-id").hidden = false;
+  $("intro-text").textContent = content.intro;
+  renderPayBox(payment, user);
   $("who-name").textContent = user.name || user.email;
   $("avatar").textContent = initials(user);
   $("admin-link").hidden = user.role !== "admin";
   $("hello").textContent = `Hi ${user.name ? user.name.split(" ")[0] : "there"}!`;
   $("role-pill").className = `pill ${user.role}`;
-  $("role-pill-text").textContent = ROLE_PILL[user.role] ?? "";
+  $("role-pill-text").textContent = user.paidUntil && user.role === "student"
+    ? `Full access to every app until ${longDate(user.paidUntil)}`
+    : ROLE_PILL[user.role] ?? "";
   $("code-form").hidden = user.role !== "public";
 
   const denied = params.get("denied");
@@ -197,15 +202,41 @@ function render({ user, apps }) {
     const rest = params.toString();
     history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
   }
-  renderSections(apps);
+  renderSections(apps, content);
+}
+
+// Back from HitPay. The portal asks HitPay itself, so this page only reports what it was told.
+// Payment can take a few seconds to clear, so ask a few times before giving up.
+async function finishPayment(reference, announce) {
+  for (let attempt = 0; attempt < (announce ? 6 : 1); attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 2500));
+    const { status, body } = await api("/api/pay/check", { method: "POST", body: JSON.stringify({ reference }) });
+    if (status !== 200) break;
+    if (body.status === "completed") {
+      if (announce || attempt === 0) showMessage("Payment received. Every app is now unlocked.", "ok");
+      return render(body);
+    }
+  }
+  if (announce) showMessage("We haven't received your payment yet. If you paid, it should show here shortly. Refresh this page in a minute, or WhatsApp us if it doesn't.");
 }
 
 async function loadMe() {
   const { status, body } = await api("/api/me");
   if (status === 200) {
+    if (body.profileRequired) return showProfileForm(body);
     const next = safeNext();
     if (next) return location.replace(next);
-    return render(body);
+    render(body);
+    const returned = params.get("payment");
+    if (returned) {
+      params.delete("payment");
+      const rest = params.toString();
+      history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : ""));
+      finishPayment(returned, true);
+    } else if (body.payment?.pendingReference) {
+      finishPayment(body.payment.pendingReference, false); // e.g. they closed the tab after paying
+    }
+    return;
   }
   if (status === 403 && body.error === "account_revoked") {
     showHome();
@@ -229,6 +260,31 @@ $("code-form").addEventListener("submit", async (e) => {
   } else {
     showMessage(body.message || "That code didn't work. Please check it and try again.", "error");
   }
+});
+
+$("profile-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const button = e.submitter;
+  button.disabled = true;
+  $("pf-error").replaceChildren();
+  const { status, body } = await api("/api/profile", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+  button.disabled = false;
+  if (status === 200) {
+    const next = safeNext();
+    if (next) return location.replace(next);
+    return render(body);
+  }
+  const text = body.issues?.[0]?.message ?? "Something went wrong. Please try again.";
+  $("pf-error").replaceChildren(el("div", { class: "notice error" }, text));
+});
+
+$("pay-button").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  const { status, body } = await api("/api/pay/start", { method: "POST", body: "{}" });
+  if (status === 200 && body.url) return location.assign(body.url);
+  button.disabled = false;
+  showMessage(body.message || "We couldn't open the payment page. Please try again.", "error");
 });
 
 $("sign-out").addEventListener("click", async () => {

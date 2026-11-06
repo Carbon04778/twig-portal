@@ -8,6 +8,13 @@
       "when": 1793246241002,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793940802326,
+      "tag": "0001_signup_tracking_payments",
+      "breakpoints": true
     }
   ]
 }

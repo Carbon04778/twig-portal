@@ -3,9 +3,17 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { apps, auditLog, promoCodes, promoRedemptions, userAppAccess, users } from "../db/schema.js";
+import { apps, auditLog, payments, promoCodes, promoRedemptions, studentProfiles, userAppAccess, users } from "../db/schema.js";
 import { formatPromoCode, normalizePromoCode } from "../lib/access.js";
+import { usageSummary, usageVisits } from "../lib/activity.js";
+import { CONTENT_KEY, contentBody, pageContent } from "../lib/content.js";
+import { toCsv } from "../lib/csv.js";
+import {
+  confirmWithHitpay, CURRENCY, getPaymentSettings, hitpayStatus, markRefunded, paymentSettingsBody, savePaymentSettings,
+} from "../lib/payment.js";
 import { generatePromoCode, generateSecret, type User } from "../lib/portal.js";
+import { SHEET_HEADERS, sgt, syncSheet } from "../lib/profile.js";
+import { deleteSetting, putSetting } from "../lib/settings.js";
 
 export const adminApi = Router();
 
@@ -183,6 +191,132 @@ adminApi.post("/apps/:id/secret", async (req, res) => {
   if (!row) return res.status(404).json({ error: "not_found" });
   await audit(res, "app.secret", row.id);
   res.json({ data: { ...publicApp(row), secret } });
+});
+
+// ---- Sign-ups (the form after sign-up) ---------------------------------------------------
+const signupRows = () => db.select({
+  userId: studentProfiles.userId, fullName: studentProfiles.fullName, email: users.email, mobile: studentProfiles.mobile,
+  school: studentProfiles.school, level: studentProfiles.level, heardFrom: studentProfiles.heardFrom,
+  createdAt: studentProfiles.createdAt, consentAt: studentProfiles.consentAt, sheetSyncedAt: studentProfiles.sheetSyncedAt, sheetError: studentProfiles.sheetError,
+}).from(studentProfiles).innerJoin(users, eq(users.id, studentProfiles.userId)).orderBy(desc(studentProfiles.createdAt));
+
+adminApi.get("/signups", async (_req, res) => {
+  res.json({ data: await signupRows(), sheetIsSet: !!process.env.GOOGLE_SHEET_ID?.trim() });
+});
+
+adminApi.post("/signups/sync", async (_req, res) => {
+  res.json({ data: await syncSheet(db) });
+});
+
+function sendCsv(res: Response, name: string, csv: string) {
+  res.type("text/csv").setHeader("Content-Disposition", `attachment; filename="${name}"`);
+  res.send(`﻿${csv}`); // the BOM makes Excel read the file as UTF-8
+}
+
+adminApi.get("/signups.csv", async (_req, res) => {
+  const rows = await signupRows();
+  sendCsv(res, "twig-signups.csv", toCsv(SHEET_HEADERS, rows.map((r) => [
+    sgt(r.createdAt), r.fullName, r.email, r.mobile, r.school, r.level, r.heardFrom, sgt(r.consentAt), r.userId,
+  ])));
+});
+
+// ---- Usage -------------------------------------------------------------------------------
+const usageQuery = z.object({ days: z.coerce.number().int().min(1).max(3650).default(30) });
+async function appTitles() {
+  const content = await pageContent(db, await db.select().from(apps));
+  return (id: string) => content.apps[id]?.title ?? id;
+}
+
+adminApi.get("/usage", async (req, res) => {
+  const { days } = usageQuery.parse(req.query);
+  const [summary, title] = await Promise.all([usageSummary(db, days), appTitles()]);
+  res.json({
+    byApp: summary.byApp.map((a) => ({ ...a, title: title(a.appId) })),
+    students: summary.students.map((s) => ({ ...s, apps: s.apps.map((a) => ({ ...a, title: title(a.appId) })) })),
+  });
+});
+
+adminApi.get("/usage.csv", async (req, res) => {
+  const { days } = usageQuery.parse(req.query);
+  const [rows, title] = await Promise.all([usageVisits(db, days), appTitles()]);
+  sendCsv(res, `twig-usage-${days}-days.csv`, toCsv(
+    ["Started (SGT)", "Last active (SGT)", "Minutes (estimate)", "Name", "Email", "School", "Level", "App", "Type"],
+    rows.map((r) => [
+      sgt(r.startedAt), sgt(r.lastActiveAt), Math.round((r.lastActiveAt.getTime() - r.startedAt.getTime()) / 60_000),
+      r.name ?? r.accountName ?? "", r.email, r.school ?? "", r.level ?? "", title(r.appId), r.source === "launch" ? "Opened" : "Came back",
+    ]),
+  ));
+});
+
+// ---- Page text ---------------------------------------------------------------------------
+adminApi.get("/content", async (_req, res) => {
+  res.json({ data: await pageContent(db, await db.select().from(apps).orderBy(apps.sortOrder, apps.name)) });
+});
+
+adminApi.put("/content", async (req, res) => {
+  const body = contentBody.parse(req.body);
+  await putSetting(db, CONTENT_KEY, body);
+  await audit(res, "content.update", "apps page");
+  res.json({ data: await pageContent(db, await db.select().from(apps).orderBy(apps.sortOrder, apps.name)) });
+});
+
+adminApi.delete("/content", async (_req, res) => {
+  await deleteSetting(db, CONTENT_KEY);
+  await audit(res, "content.reset", "apps page");
+  res.json({ data: await pageContent(db, await db.select().from(apps).orderBy(apps.sortOrder, apps.name)) });
+});
+
+// ---- Payment -----------------------------------------------------------------------------
+const paymentView = async () => {
+  const s = await getPaymentSettings(db);
+  const recent = await db.select({ p: payments, email: users.email, name: users.name, paidUntil: users.paidUntil })
+    .from(payments).innerJoin(users, eq(users.id, payments.userId)).orderBy(desc(payments.createdAt)).limit(200);
+  return {
+    settings: { ...s, currency: CURRENCY }, hitpay: hitpayStatus(),
+    payments: recent.map(({ p, email, name, paidUntil }) => ({
+      id: p.id, email, name, amountCents: p.amountCents, currency: p.currency, months: p.months, status: p.status,
+      createdAt: p.createdAt, paidAt: p.paidAt, accessUntil: p.accessUntil, refundedAt: p.refundedAt, paidUntil,
+    })),
+  };
+};
+
+adminApi.get("/payment", async (_req, res) => {
+  res.json({ data: await paymentView() });
+});
+
+adminApi.put("/payment", async (req, res) => {
+  const b = paymentSettingsBody.parse(req.body);
+  if (b.enabled && !hitpayStatus().keyIsSet) {
+    return res.status(400).json({ error: "hitpay_not_set_up", message: "Add HITPAY_API_KEY to Secrets and republish before switching payment on." });
+  }
+  const next = {
+    enabled: b.enabled, priceCents: Math.round(b.price * 100), months: b.months, refundPolicy: b.refund_policy,
+    compareAtCents: b.compare_at ? Math.round(b.compare_at * 100) : null,
+  };
+  await savePaymentSettings(db, next);
+  await audit(res, "payment.settings", b.enabled ? "on" : "off", next);
+  res.json({ data: await paymentView() });
+});
+
+adminApi.post("/payments/:id/check", async (req, res) => {
+  const id = z.coerce.number().int().positive().parse(req.params.id);
+  const [p] = await db.select().from(payments).where(eq(payments.id, id));
+  if (!p) return res.status(404).json({ error: "not_found" });
+  const status = await confirmWithHitpay(db, p).catch((err) => {
+    console.error("HitPay check failed:", err instanceof Error ? err.message : err);
+    return null;
+  });
+  if (!status) return res.status(502).json({ error: "hitpay_unreachable", message: "Couldn't get an answer from HitPay. Please try again." });
+  res.json({ status, data: await paymentView() });
+});
+
+// The money goes back in HitPay's dashboard; this ends the access that payment gave.
+adminApi.post("/payments/:id/refund", async (req, res) => {
+  const id = z.coerce.number().int().positive().parse(req.params.id);
+  const p = await markRefunded(db, id);
+  if (!p) return res.status(400).json({ error: "not_refundable", message: "Only a completed payment can be marked as refunded." });
+  await audit(res, "payment.refunded", p.reference);
+  res.json({ data: await paymentView() });
 });
 
 adminApi.get("/audit", async (_req, res) => {
