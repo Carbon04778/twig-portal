@@ -13,7 +13,7 @@ import { confirmWithHitpay, handleWebhook, paymentOffer, startPayment, validWebh
 import {
   appsFor, checkUserAccess, createLaunchCode, exchangeLaunchCode, redeemPromo, syncUser, userCanOpen, type User,
 } from "../lib/portal.js";
-import { CONSENT_TEXT, getProfile, HEARD_FROM, LEVELS, profileBody, saveProfile, syncSheet } from "../lib/profile.js";
+import { CONSENT_TEXT, examYears, getProfile, HEARD_FROM, LEVELS, profileBody, saveProfile, syncSheet } from "../lib/profile.js";
 
 // Loads the signed-in user (or leaves res.locals.user undefined).
 export function loadUser(identify: IdentityProvider) {
@@ -51,7 +51,7 @@ async function homePayload(user: User) {
     content: await pageContent(db, allApps),
     payment,
     profileRequired: !profile && user.role !== "admin",
-    profileForm: { levels: LEVELS, heardFrom: HEARD_FROM, consent: CONSENT_TEXT },
+    profileForm: { levels: LEVELS, examYears: examYears().map(String), heardFrom: HEARD_FROM, consent: CONSENT_TEXT },
   };
 }
 

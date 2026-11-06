@@ -27,7 +27,7 @@ export const DEFAULT_PAYMENT: PaymentSettings = {
   priceCents: 2000,
   compareAtCents: 12000,
   months: 12,
-  refundPolicy: "Enjoy full access with our 7-day trial period. If you are not completely satisfied with the Twig Learning Center app, you may request a full refund within 7 days of payment. To request a refund, please contact our support team on WhatsApp at 8338 7476 within this 7-day window. Requests submitted after 7 days will not be eligible for a refund.",
+  refundPolicy: "Enjoy full access with our 7-day trial period. If you are not completely satisfied with the Twig Learning Center app, you may request a full refund within 7 days of payment. To request a refund, please contact our support team on WhatsApp at 8338 7476 or by email at hello@twig.sg within this 7-day window. Requests submitted after 7 days will not be eligible for a refund.",
 };
 export const CURRENCY = "SGD";
 const RENEW_WINDOW_MS = 30 * 86_400_000; // paid students may renew in their last 30 days

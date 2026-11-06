@@ -171,6 +171,7 @@ function showProfileForm(data) {
   $("admin-link").hidden = true;
   const options = (list, prompt) => [el("option", { value: "", selected: true, disabled: true }, prompt), ...list.map((v) => el("option", { value: v }, v))];
   $("pf-level").replaceChildren(...options(data.profileForm.levels, "Choose your level"));
+  $("pf-exam-year").replaceChildren(...options(data.profileForm.examYears, "Choose your exam year"));
   $("pf-heard").replaceChildren(...options(data.profileForm.heardFrom, "Choose one"));
   $("pf-consent").textContent = data.profileForm.consent;
   if (!$("pf-name").value) $("pf-name").value = data.user.name ?? "";

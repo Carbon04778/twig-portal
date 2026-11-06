@@ -51,6 +51,11 @@ the sheet. Secrets: `GOOGLE_SHEET_ID` (the part between `/d/` and `/edit` in its
 
 ## Usage tracking
 
+Each finished visit is also added to an "App activity" tab in the Google Sheet (created automatically).
+A visit counts as finished 35 minutes after its last check-in. Sends run at most every 15 minutes while
+the apps are in use, or from Admin → Usage. Sign-ups go to the first tab unless `GOOGLE_SHEET_TAB` is set,
+so keep that tab first.
+
 Admin → Usage shows opens and estimated time per app and per student. Opens are recorded at launch.
 Time comes from each app's access re-checks (`connector/portalAuth.ts`). Apps with an older copy of
 that file re-check every 30 minutes, so short visits show as "under 5 min" until the file is re-copied

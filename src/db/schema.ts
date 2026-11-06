@@ -91,6 +91,7 @@ export const studentProfiles = pgTable("student_profiles", {
   fullName: text("full_name").notNull(),
   school: text("school").notNull(),
   level: text("level").notNull(),
+  examYear: integer("exam_year").notNull(),
   mobile: text("mobile").notNull(),
   heardFrom: text("heard_from").notNull(),
   consentText: text("consent_text").notNull(), // the exact wording they agreed to
@@ -109,8 +110,10 @@ export const appSessions = pgTable("app_sessions", {
   source: text("source").notNull().default("launch"), // launch: opened from the portal; resume: back in a session still open
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
+  sheetSyncedAt: timestamp("sheet_synced_at", { withTimezone: true }),
 }, (t) => [
   index("app_sessions_started").on(t.startedAt),
+  index("app_sessions_unsynced").on(t.sheetSyncedAt),
   index("app_sessions_user_app").on(t.userId, t.appId, t.lastActiveAt),
 ]);
 

@@ -95,7 +95,7 @@
           <button class="btn small ghost" id="signups-sync" type="button">Send missed rows to Google Sheet</button>
           <span class="muted small" id="signups-status"></span>
         </div>
-        <div class="table-scroll"><table><thead><tr><th>Signed up</th><th>Name</th><th>Mobile</th><th>School</th><th>Level</th><th>Heard from</th><th>Google Sheet</th></tr></thead><tbody id="signups"></tbody></table></div>
+        <div class="table-scroll"><table><thead><tr><th>Signed up</th><th>Name</th><th>Mobile</th><th>School</th><th>Level</th><th>Exam year</th><th>Heard from</th><th>Google Sheet</th></tr></thead><tbody id="signups"></tbody></table></div>
       </div>
 
       <!-- Usage -->
@@ -103,8 +103,10 @@
         <div class="row">
           <select id="usage-days" aria-label="Period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 12 months</option></select>
           <a class="btn small ghost" id="usage-csv" href="/api/admin/usage.csv?days=30">Download CSV</a>
+          <button class="btn small ghost" id="usage-sync" type="button">Send finished visits to Google Sheet</button>
+          <span class="muted small" id="usage-status"></span>
         </div>
-        <p class="muted small">Your own admin account isn't counted. Opens are exact. Time is an estimate: it runs from opening an app to the last time that app checked in with the portal.</p>
+        <p class="muted small">Your own admin account isn't counted. Opens are exact. Time is an estimate: it runs from opening an app to the last time that app checked in with the portal. Each visit reaches the Sheet's "App activity" tab about an hour after it ends.</p>
         <h2 style="font-size:18px">Most used apps</h2>
         <div class="table-scroll"><table><thead><tr><th>App</th><th>Opens</th><th>Students</th><th>Time</th></tr></thead><tbody id="usage-apps"></tbody></table></div>
         <h2 style="font-size:18px;margin-top:24px">By student</h2>

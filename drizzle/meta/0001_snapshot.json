@@ -46,9 +46,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "sheet_synced_at": {
+          "name": "sheet_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
+        "app_sessions_unsynced": {
+          "name": "app_sessions_unsynced",
+          "columns": [
+            {
+              "expression": "sheet_synced_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "app_sessions_started": {
           "name": "app_sessions_started",
           "columns": [
@@ -723,6 +744,12 @@
         "mobile": {
           "name": "mobile",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exam_year": {
+          "name": "exam_year",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },

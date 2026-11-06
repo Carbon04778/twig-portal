@@ -243,18 +243,22 @@ async function loadSignups() {
   $("signups").replaceChildren(...data.map((r) => el("tr", {},
     el("td", { class: "small" }, dateTime(r.createdAt)),
     el("td", {}, el("strong", {}, r.fullName), el("div", { class: "muted small" }, r.email)),
-    el("td", {}, r.mobile), el("td", {}, r.school), el("td", {}, r.level), el("td", {}, r.heardFrom),
+    el("td", {}, r.mobile), el("td", {}, r.school), el("td", {}, r.level), el("td", {}, String(r.examYear)), el("td", {}, r.heardFrom),
     el("td", { class: "small" }, r.sheetSyncedAt ? "Sent" : r.sheetError ? `Not sent: ${r.sheetError}` : "Waiting"))));
-  if (!data.length) $("signups").append(emptyRow(7, "No sign-ups yet."));
+  if (!data.length) $("signups").append(emptyRow(8, "No sign-ups yet."));
 }
 
-$("signups-sync").addEventListener("click", async () => {
-  const { data } = await api("/signups/sync", { method: "POST", body: {} });
+async function sendToSheet(path) {
+  const { data } = await api(path, { method: "POST", body: {} });
   const text = {
     sent: `Sent ${data.sent} row${data.sent === 1 ? "" : "s"} to the sheet`, nothing_to_send: "Nothing to send: the sheet is up to date",
     not_configured: "GOOGLE_SHEET_ID isn't set yet", failed: `Couldn't send: ${data.message}`,
   }[data.status];
   toast(text, data.status === "failed" || data.status === "not_configured");
+}
+
+$("signups-sync").addEventListener("click", async () => {
+  await sendToSheet("/signups/sync");
   loadSignups();
 });
 
@@ -264,7 +268,8 @@ const duration = (m) => (!m ? "under 5 min" : m < 60 ? `${m} min` : `${Math.floo
 async function loadUsage() {
   const days = $("usage-days").value;
   $("usage-csv").href = `/api/admin/usage.csv?days=${days}`;
-  const { byApp, students } = await api(`/usage?days=${days}`);
+  const { byApp, students, sheetIsSet, sheetWaiting } = await api(`/usage?days=${days}`);
+  $("usage-status").textContent = !sheetIsSet ? "Google Sheet isn't connected yet." : sheetWaiting ? `${sheetWaiting} visit${sheetWaiting === 1 ? "" : "s"} not in the sheet yet` : "All visits are in the sheet";
   $("usage-apps").replaceChildren(...byApp.map((a) => el("tr", {},
     el("td", {}, el("strong", {}, a.title)), el("td", {}, String(a.opens)), el("td", {}, String(a.students)), el("td", {}, duration(a.minutes)))));
   if (!byApp.length) $("usage-apps").append(emptyRow(4, "No app has been opened in this period."));
@@ -276,6 +281,10 @@ async function loadUsage() {
   if (!students.length) $("usage-students").append(emptyRow(5, "No student activity in this period."));
 }
 $("usage-days").addEventListener("change", loadUsage);
+$("usage-sync").addEventListener("click", async () => {
+  await sendToSheet("/usage/sync");
+  loadUsage();
+});
 
 // ---- Page text -------------------------------------------------------------------------
 function field(label, name, value, { max, required, rows } = {}) {

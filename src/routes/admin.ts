@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { apps, auditLog, payments, promoCodes, promoRedemptions, studentProfiles, userAppAccess, users } from "../db/schema.js";
 import { formatPromoCode, normalizePromoCode } from "../lib/access.js";
-import { usageSummary, usageVisits } from "../lib/activity.js";
+import { activityWaiting, appTitles, syncActivity, usageSummary, usageVisits, VISIT_HEADERS, visitRow } from "../lib/activity.js";
 import { CONTENT_KEY, contentBody, pageContent } from "../lib/content.js";
 import { toCsv } from "../lib/csv.js";
 import {
@@ -196,7 +196,7 @@ adminApi.post("/apps/:id/secret", async (req, res) => {
 // ---- Sign-ups (the form after sign-up) ---------------------------------------------------
 const signupRows = () => db.select({
   userId: studentProfiles.userId, fullName: studentProfiles.fullName, email: users.email, mobile: studentProfiles.mobile,
-  school: studentProfiles.school, level: studentProfiles.level, heardFrom: studentProfiles.heardFrom,
+  school: studentProfiles.school, level: studentProfiles.level, examYear: studentProfiles.examYear, heardFrom: studentProfiles.heardFrom,
   createdAt: studentProfiles.createdAt, consentAt: studentProfiles.consentAt, sheetSyncedAt: studentProfiles.sheetSyncedAt, sheetError: studentProfiles.sheetError,
 }).from(studentProfiles).innerJoin(users, eq(users.id, studentProfiles.userId)).orderBy(desc(studentProfiles.createdAt));
 
@@ -216,21 +216,19 @@ function sendCsv(res: Response, name: string, csv: string) {
 adminApi.get("/signups.csv", async (_req, res) => {
   const rows = await signupRows();
   sendCsv(res, "twig-signups.csv", toCsv(SHEET_HEADERS, rows.map((r) => [
-    sgt(r.createdAt), r.fullName, r.email, r.mobile, r.school, r.level, r.heardFrom, sgt(r.consentAt), r.userId,
+    sgt(r.createdAt), r.fullName, r.email, r.mobile, r.school, r.level, r.examYear, r.heardFrom, sgt(r.consentAt), r.userId,
   ])));
 });
 
 // ---- Usage -------------------------------------------------------------------------------
 const usageQuery = z.object({ days: z.coerce.number().int().min(1).max(3650).default(30) });
-async function appTitles() {
-  const content = await pageContent(db, await db.select().from(apps));
-  return (id: string) => content.apps[id]?.title ?? id;
-}
 
 adminApi.get("/usage", async (req, res) => {
   const { days } = usageQuery.parse(req.query);
-  const [summary, title] = await Promise.all([usageSummary(db, days), appTitles()]);
+  const [summary, title, sheetWaiting] = await Promise.all([usageSummary(db, days), appTitles(db), activityWaiting(db)]);
   res.json({
+    sheetIsSet: !!process.env.GOOGLE_SHEET_ID?.trim(),
+    sheetWaiting,
     byApp: summary.byApp.map((a) => ({ ...a, title: title(a.appId) })),
     students: summary.students.map((s) => ({ ...s, apps: s.apps.map((a) => ({ ...a, title: title(a.appId) })) })),
   });
@@ -238,14 +236,12 @@ adminApi.get("/usage", async (req, res) => {
 
 adminApi.get("/usage.csv", async (req, res) => {
   const { days } = usageQuery.parse(req.query);
-  const [rows, title] = await Promise.all([usageVisits(db, days), appTitles()]);
-  sendCsv(res, `twig-usage-${days}-days.csv`, toCsv(
-    ["Started (SGT)", "Last active (SGT)", "Minutes (estimate)", "Name", "Email", "School", "Level", "App", "Type"],
-    rows.map((r) => [
-      sgt(r.startedAt), sgt(r.lastActiveAt), Math.round((r.lastActiveAt.getTime() - r.startedAt.getTime()) / 60_000),
-      r.name ?? r.accountName ?? "", r.email, r.school ?? "", r.level ?? "", title(r.appId), r.source === "launch" ? "Opened" : "Came back",
-    ]),
-  ));
+  const [rows, title] = await Promise.all([usageVisits(db, days), appTitles(db)]);
+  sendCsv(res, `twig-usage-${days}-days.csv`, toCsv(VISIT_HEADERS, rows.map((r) => visitRow(r, title))));
+});
+
+adminApi.post("/usage/sync", async (_req, res) => {
+  res.json({ data: await syncActivity(db) });
 });
 
 // ---- Page text ---------------------------------------------------------------------------

@@ -45,7 +45,7 @@ describe("portal", () => {
   const AMY = "clerk_amy|amy@example.com|Amy Tan";
   const BEN = "clerk_ben|ben@example.com|Ben Lim";
   const CARA = "clerk_cara|cara@example.com|Cara Ng";
-  const DETAILS = { full_name: "Amy Tan", school: "=HYPERLINK(\"x\")", level: "JC2", mobile: "+65 8123 4567", heard_from: "Google" };
+  const DETAILS = { full_name: "Amy Tan", school: "=HYPERLINK(\"x\")", level: "JC2", exam_year: String(new Date().getFullYear() + 1), mobile: "+65 8123 4567", heard_from: "Google" };
 
   async function call(p: string, as: string | null, init: RequestInit = {}) {
     const headers: Record<string, string> = { ...(as ? { "x-test-user": as } : {}), ...(init.body ? { "content-type": "application/json" } : {}) };
@@ -218,6 +218,10 @@ describe("portal", () => {
     assert.equal((await call("/launch/paper1", AMY)).location, "/?next=%2Flaunch%2Fpaper1", "details form comes first");
     assert.equal((await post("/api/profile", AMY, { ...DETAILS, mobile: "12" })).status, 400, "bad mobile");
     assert.equal((await post("/api/profile", AMY, { ...DETAILS, level: "J3" })).status, 400, "bad level");
+    const { exam_year: _omitted, ...noYear } = DETAILS;
+    assert.equal((await post("/api/profile", AMY, noYear)).status, 400, "exam year is compulsory");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, exam_year: "" })).status, 400, "empty exam year");
+    assert.equal((await post("/api/profile", AMY, { ...DETAILS, exam_year: "1999" })).status, 400, "exam year out of range");
     assert.equal((await post("/api/profile", AMY, DETAILS)).status, 200);
 
     const go = await call("/launch/paper1", AMY);
@@ -343,7 +347,8 @@ describe("portal", () => {
     assert.equal(sent.body.data.status, "sent");
     assert.equal(writes[0]!.values[0]![0], "Signed up (SGT)", "header row first");
     const row = writes[1]!.values.find((r) => r[2] === "ben@example.com")!;
-    assert.deepEqual(row.slice(1, 7), ["Ben Lim", "ben@example.com", "+6581234567", DETAILS.school, "JC2", "Google"]);
+    assert.deepEqual(row.slice(1, 8), ["Ben Lim", "ben@example.com", "+6581234567", DETAILS.school, "JC2", Number(DETAILS.exam_year), "Google"]);
+    assert.equal(writes[0]!.values[0]![6], "Exam year", "header lines up with the row");
     assert.match(writes[1]!.path, /:append\?valueInputOption=RAW/, "RAW: a typed formula stays text");
 
     // Sheet down: the student still gets in, and the row goes with the next send.
@@ -386,6 +391,44 @@ describe("portal", () => {
     assert.equal((await mod.pool.query("select count(*)::int as n from app_sessions")).rows[0].n, 2);
     assert.match(String((await call("/api/admin/usage.csv?days=7", DONNELL)).body), /Came back/);
     assert.equal((await call("/api/admin/usage", AMY)).status, 403);
+
+    // Google Sheet: finished visits only, in their own tab, each sent once.
+    const { setSheetTransport } = await import("../src/lib/profile.js");
+    const sheet: { path: string; method: string; body: any }[] = [];
+    let tabs: string[] = ["Sheet1"];
+    let down = false;
+    setSheetTransport(async (p, init) => {
+      if (down) return new Response("{}", { status: 503 });
+      const body = init.body ? JSON.parse(String(init.body)) : null;
+      sheet.push({ path: p, method: init.method!, body });
+      if (p.includes("?fields=")) return Response.json({ sheets: tabs.map((title) => ({ properties: { title } })) });
+      if (p.endsWith(":batchUpdate")) tabs = [...tabs, body.requests[0].addSheet.properties.title];
+      return Response.json({});
+    });
+    process.env.GOOGLE_SHEET_ID = "sheet123";
+    await mod.pool.query("delete from app_sessions");
+    await call("/launch/paper1", DONNELL); // admin: never sent
+    await call("/launch/paper1", AMY); // still going: must wait
+    await call("/launch/paper1", AMY);
+    await mod.pool.query(`update app_sessions set started_at = now() - interval '2 hours', last_active_at = now() - interval '100 minutes'
+      where id = (select min(s.id) from app_sessions s join users u on u.id = s.user_id where u.email = 'amy@example.com')`);
+
+    down = true;
+    assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "failed", "sheet down");
+    assert.equal((await call("/api/admin/usage", DONNELL)).body.sheetWaiting, 2, "nothing marked sent");
+    down = false;
+
+    assert.deepEqual((await post("/api/admin/usage/sync", DONNELL, {})).body.data, { status: "sent", sent: 1 });
+    assert.ok(tabs.includes("App activity"), "tab created");
+    const append = sheet.find((s) => s.path.includes(":append"))!;
+    assert.match(decodeURIComponent(append.path), /'App activity'!A:J:append\?valueInputOption=RAW/);
+    const header = sheet.find((s) => s.method === "PUT")!.body.values[0];
+    assert.equal(header[7], "App");
+    assert.deepEqual(append.body.values.map((r: any[]) => [r[2], r[4], r[7], r[8]]), [[20, "amy@example.com", "Prelim MCQ Practice", "Opened"]]);
+    assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "nothing_to_send", "never sent twice");
+    assert.equal((await call("/api/admin/usage", DONNELL)).body.sheetWaiting, 1, "the running visit still waits");
+    assert.equal((await post("/api/admin/usage/sync", AMY, {})).status, 403);
+    setSheetTransport(async () => Response.json({}));
   });
 
   test("page text: edited in admin, shown to students, can be restored", async () => {
