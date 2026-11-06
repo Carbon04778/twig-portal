@@ -2,6 +2,10 @@
 // Run from the app's project root, after pulling twig-portal:
 //   node <twig-portal>/connector/install-tracking.mjs --app <paper1|alevel-mcq|review|worksheets> --web artifacts/<web-app>
 //
+// It adds two new files and never replaces the app's portalAuth.ts or PortalGate.tsx, because live
+// apps can have their own code in those (Paper Generator's teacher sign-in, for example). The only
+// edit to portalAuth.ts is the access re-check timer, from 30 minutes to 5, for better time estimates.
+//
 // It changes nothing unless every expected piece of code is found exactly once, and says what is
 // missing. Running it again is safe. Check `git diff`, run the typecheck, commit, then publish.
 import fs from "node:fs";
@@ -13,7 +17,7 @@ const opt = (name) => args[args.indexOf(name) + 1];
 const appId = args.includes("--app") ? opt("--app") : null;
 const web = args.includes("--web") ? opt("--web") : null;
 
-const IMPORT = "import { reportExamEvent, useExamPresence } from '@/components/PortalGate';";
+const IMPORT = "import { reportExamEvent, useExamPresence } from '@/components/PortalExam';";
 const APPS = {
   paper1: {
     rules: [
@@ -113,33 +117,50 @@ const problems = [];
 const read = (f) => (pending.has(f) ? pending.get(f) : fs.readFileSync(f, "utf8").replaceAll("\r\n", "\n"));
 const count = (text, needle) => text.split(needle).length - 1;
 
-// 1. The connector files. These are the versions every app should have.
-pending.set(path.join(api, "middlewares/portalAuth.ts"), fs.readFileSync(path.join(here, "portalAuth.ts"), "utf8"));
-pending.set(path.join(webRoot, "src/components/PortalGate.tsx"), fs.readFileSync(path.join(here, "PortalGate.tsx"), "utf8"));
+// 1. The two new files.
+pending.set(path.join(api, "middlewares/portalTrack.ts"), fs.readFileSync(path.join(here, "portalTrack.ts"), "utf8"));
+pending.set(path.join(webRoot, "src/components/PortalExam.tsx"), fs.readFileSync(path.join(here, "PortalExam.tsx"), "utf8"));
 
-// 2. Server: report chosen API calls.
-if (config.rules.length) {
+// 2. Server: the events route, and report chosen API calls.
+{
   const file = path.join(api, "app.ts");
   let text = read(file);
-  const block = `app.use(portalTrack(${JSON.stringify(config.rules, null, 2)}));`;
-  if (text.includes("portalTrack(")) {
-    text = text.replace(/app\.use\(portalTrack\(\[[\s\S]*?\]\)\);/, block); // keeps the rules up to date
-  } else if (count(text, "app.use(portalSession);") !== 1 || !/import \{[^}]*portalSession[^}]*\} from ["']\.\/middlewares\/portalAuth["']/.test(text)) {
+  const block = `app.use("/api/portal", portalEvents);\napp.use(portalTrack(${JSON.stringify(config.rules, null, 2)}));`;
+  const sessionImport = /import \{[^}]*portalSession[^}]*\} from ["']\.\/middlewares\/portalAuth["'];/;
+  if (/import \{[^}]*portalTrack[^}]*\} from ["']\.\/middlewares\/portalAuth["']/.test(text)) {
+    problems.push("app.ts: the earlier version of this tracking is here. Undo that commit first (git revert), then run this again.");
+  } else if (text.includes('from "./middlewares/portalTrack"')) {
+    text = text.replace(/app\.use\(portalTrack\(\[[\s\S]*?\]\)\);/, `app.use(portalTrack(${JSON.stringify(config.rules, null, 2)}));`); // keeps the rules up to date
+  } else if (count(text, "app.use(portalSession);") !== 1 || !sessionImport.test(text)) {
     problems.push("app.ts: the portal connection isn't there. Connect this app first with install.mjs.");
   } else {
     text = text
-      .replace(/import \{([^}]*portalSession[^}]*)\} from (["']\.\/middlewares\/portalAuth["'])/, "import { portalTrack,$1} from $2")
-      .replace("app.use(portalSession);", `app.use(portalSession);\n${block}`);
+      .replace(sessionImport, (line) => `${line}\nimport { portalEvents, portalTrack } from "./middlewares/portalTrack";`)
+      .replace("app.use(portalSession);", () => `app.use(portalSession);\n${block}`);
   }
   pending.set(file, text);
+
+  // Only the timer line, so anything else the app has in this file stays exactly as it is.
+  const authFile = path.join(api, "middlewares/portalAuth.ts");
+  if (!fs.existsSync(authFile)) problems.push("middlewares/portalAuth.ts not found. Connect this app first with install.mjs.");
+  else {
+    const auth = read(authFile);
+    const faster = auth.replace(/const RECHECK_MS = 30 \* 60 \* 1000;/, "const RECHECK_MS = 5 * 60 * 1000;");
+    if (faster !== auth) pending.set(authFile, faster);
+    else if (!auth.includes("const RECHECK_MS = 5 * 60 * 1000;")) console.log("portalAuth.ts: re-check timer not recognised, left as it is. Time estimates may be rougher.");
+  }
 }
 
 // 3. Frontend: exam steps.
 for (const { file, changes } of config.edits) {
   const full = path.join(webRoot, file);
   let text = read(full);
-  if (text.includes("components/PortalGate';") && text.includes("reportExamEvent")) {
+  if (text.includes("components/PortalExam'")) {
     console.log(`${file} already reports exam steps (skipped)`);
+    continue;
+  }
+  if (text.includes("reportExamEvent")) {
+    problems.push(`${file}: the earlier version of this tracking is here. Undo that commit first (git revert), then run this again.`);
     continue;
   }
   for (const [find, replace] of changes) {

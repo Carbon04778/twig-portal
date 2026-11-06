@@ -442,8 +442,10 @@ describe("portal", () => {
       await post("/api/admin/apps", DONNELL, { id: "eventsapp", name: "Events app", url: fakeBase, public_access: true });
       const secret = (await post("/api/admin/apps/eventsapp/secret", DONNELL, {})).body.data.secret;
       Object.assign(process.env, { PORTAL_URL: base, PORTAL_APP_ID: "eventsapp", PORTAL_APP_SECRET: secret });
-      const { portalRoutes, portalSession, portalTrack, requirePortalUser } = await import("../connector/portalAuth.js");
+      const { portalRoutes, portalSession, requirePortalUser } = await import("../connector/portalAuth.js");
+      const { portalEvents, portalTrack } = await import("../connector/portalTrack.js");
       fake.use(portalSession);
+      fake.use("/api/portal", portalEvents);
       fake.use(portalTrack([
         { match: "POST /api/explain/:id", type: "claude_used", label: "Explanation" },
         { match: "POST /api/fails", type: "claude_used", label: "Should not count" },
