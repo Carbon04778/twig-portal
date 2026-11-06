@@ -8,7 +8,14 @@ const eventsUrl = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/portal/eve
 type ExamEventType = "exam_started" | "exam_left" | "exam_returned" | "exam_submitted" | "exam_timed_out" | "exam_quit";
 export interface ExamDetails { ref: string; title?: string | null; label?: string; score?: number; total?: number; at?: number }
 
+// Some apps stay on the same page after an exam ends, so remember that it has ended.
+const doneKey = (ref: string) => `twig-exam-done:${ref}`;
+const isDone = (ref: string) => { try { return localStorage.getItem(doneKey(ref)) !== null; } catch { return false; } };
+
 export function reportExamEvent(type: ExamEventType, { title, at, ...rest }: ExamDetails) {
+  if (type === "exam_submitted" || type === "exam_timed_out" || type === "exam_quit") {
+    try { localStorage.setItem(doneKey(rest.ref), "1"); } catch { /* not essential */ }
+  }
   try {
     void fetch(eventsUrl, {
       method: "POST", credentials: "same-origin", keepalive: true, // keepalive: still sent while the page closes
@@ -25,7 +32,7 @@ export function useExamPresence(exam: { ref: string; title?: string | null } | n
   const ref = exam?.ref;
   const title = exam?.title;
   useEffect(() => {
-    if (!ref) return;
+    if (!ref || isDone(ref)) return;
     const key = `twig-exam-away:${ref}`;
     const isAway = () => { try { return localStorage.getItem(key) !== null; } catch { return false; } };
     const setAway = (away: boolean) => {
@@ -35,7 +42,7 @@ export function useExamPresence(exam: { ref: string; title?: string | null } | n
     let timer: number | undefined;
     const left = () => {
       window.clearTimeout(timer);
-      if (isAway()) return;
+      if (isAway() || isDone(ref)) return;
       setAway(true);
       reportExamEvent("exam_left", { ref, title, at: hiddenAt ?? Date.now() });
     };

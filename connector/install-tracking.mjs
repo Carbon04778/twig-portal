@@ -77,8 +77,8 @@ const APPS = {
           "  const question = questions[current];\n  useExamPresence(validSession ? { ref: session.sessionId, title: session.topic ?? session.mode } : null);\n",
         ],
         [
-          "      onSuccess: result => { saveStored(RESULT_KEY, result);",
-          "      onSuccess: result => { reportExamEvent('exam_submitted', { ref: session.sessionId, title: session.topic ?? session.mode, score: result.correctCount, total: result.totalQuestions }); saveStored(RESULT_KEY, result);",
+          "saveStored(RESULT_KEY, result);",
+          "reportExamEvent('exam_submitted', { ref: session.sessionId, title: session.topic ?? session.mode, score: result.correctCount, total: result.totalQuestions }); saveStored(RESULT_KEY, result);",
         ],
       ],
     }],
