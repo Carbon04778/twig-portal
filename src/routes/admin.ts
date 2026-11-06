@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { apps, auditLog, payments, promoCodes, promoRedemptions, studentProfiles, userAppAccess, users } from "../db/schema.js";
 import { formatPromoCode, normalizePromoCode } from "../lib/access.js";
+import { allEvents, EVENT_HEADERS, eventRow, eventsWaiting, eventSummary } from "../lib/events.js";
 import { activityWaiting, appTitles, syncActivity, usageSummary, usageVisits, VISIT_HEADERS, visitRow } from "../lib/activity.js";
 import { CONTENT_KEY, contentBody, pageContent } from "../lib/content.js";
 import { toCsv } from "../lib/csv.js";
@@ -225,10 +226,15 @@ const usageQuery = z.object({ days: z.coerce.number().int().min(1).max(3650).def
 
 adminApi.get("/usage", async (req, res) => {
   const { days } = usageQuery.parse(req.query);
-  const [summary, title, sheetWaiting] = await Promise.all([usageSummary(db, days), appTitles(db), activityWaiting(db)]);
+  const [summary, title, visitsWaiting, inAppWaiting, inApp] = await Promise.all([
+    usageSummary(db, days), appTitles(db), activityWaiting(db), eventsWaiting(db), eventSummary(db, days),
+  ]);
   res.json({
     sheetIsSet: !!process.env.GOOGLE_SHEET_ID?.trim(),
-    sheetWaiting,
+    sheetWaiting: visitsWaiting + inAppWaiting,
+    aiByApp: inApp.aiByApp.map((a) => ({ ...a, title: title(a.appId) })),
+    aiByStudent: inApp.aiByStudent,
+    exams: inApp.exams.map((e) => ({ ...e, appTitle: title(e.appId) })),
     byApp: summary.byApp.map((a) => ({ ...a, title: title(a.appId) })),
     students: summary.students.map((s) => ({ ...s, apps: s.apps.map((a) => ({ ...a, title: title(a.appId) })) })),
   });
@@ -238,6 +244,12 @@ adminApi.get("/usage.csv", async (req, res) => {
   const { days } = usageQuery.parse(req.query);
   const [rows, title] = await Promise.all([usageVisits(db, days), appTitles(db)]);
   sendCsv(res, `twig-usage-${days}-days.csv`, toCsv(VISIT_HEADERS, rows.map((r) => visitRow(r, title))));
+});
+
+adminApi.get("/events.csv", async (req, res) => {
+  const { days } = usageQuery.parse(req.query);
+  const [rows, title] = await Promise.all([allEvents(db, days), appTitles(db)]);
+  sendCsv(res, `twig-exams-and-claude-${days}-days.csv`, toCsv(EVENT_HEADERS, rows.map((r) => eventRow(r, title))));
 });
 
 adminApi.post("/usage/sync", async (_req, res) => {

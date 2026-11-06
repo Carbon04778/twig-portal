@@ -68,6 +68,13 @@ export function sheetCaller(sheetId: string, timeoutMs: number): SheetCall {
   };
 }
 
+export async function ensureTab(call: SheetCall, title: string) {
+  const { sheets } = await call("?fields=sheets.properties.title");
+  if (!sheets?.some((s) => s.properties?.title === title)) {
+    await call(":batchUpdate", "POST", { requests: [{ addSheet: { properties: { title } } }] });
+  }
+}
+
 // Adds rows to a tab (or the first tab), writing the headers first if the tab is empty.
 export async function writeRows(call: SheetCall, tab: string | undefined, headers: string[], rows: unknown[][]) {
   const lastColumn = String.fromCharCode(64 + headers.length);

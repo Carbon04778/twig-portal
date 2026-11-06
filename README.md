@@ -61,6 +61,26 @@ Time comes from each app's access re-checks (`connector/portalAuth.ts`). Apps wi
 that file re-check every 30 minutes, so short visits show as "under 5 min" until the file is re-copied
 and the app republished.
 
+## Exams and Claude use
+
+Apps report what happens inside them to `POST /api/apps/events`. Admin → Usage shows one line per exam
+attempt, plus Claude and voice use by app and by student. Every event also goes to the Sheet's "Exams and
+Claude" tab, and to a CSV download, with its timestamp. To add this to a connected app, from its project root:
+
+```sh
+node /tmp/twig-portal/connector/install-tracking.mjs --app <paper1|alevel-mcq|review|worksheets> --web artifacts/<web-app>
+```
+
+It changes nothing unless the code it expects is found exactly once. Then typecheck, commit and publish.
+
+- The apps have no Pause button. "Stepped away" means the exam page was hidden or closed for 20 seconds or
+  more, and the exam clock keeps running.
+- Claude and voice counts are successful requests from the app's server, so a student can't add to them. A
+  repeated question answered from the app's cache still counts as a use, so this is not a bill.
+- Practice exam steps and scores come from the student's browser, so treat them as a guide, not as proof.
+- A class test that ends at its deadline without the student pressing Submit shows "Not finished" here. The
+  app itself holds the real result.
+
 ## Payment (HitPay)
 
 Off until switched on in Admin → Payment. Payment gives the same access as a student code until

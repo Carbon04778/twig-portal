@@ -5,7 +5,8 @@ import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, sql } from "driz
 import type { Db } from "../db/client.js";
 import { apps, appSessions, studentProfiles, users } from "../db/schema.js";
 import { pageContent } from "./content.js";
-import { oneSheetSendAtATime, sgt, sheetCaller, writeRows, type SheetResult } from "./profile.js";
+import { sendNewEvents } from "./events.js";
+import { ensureTab, oneSheetSendAtATime, sgt, sheetCaller, writeRows, type SheetResult } from "./profile.js";
 
 // A check-in further apart than this starts a new visit. Must be longer than the connector's
 // re-check interval (connector/portalAuth.ts; older copies re-check every 30 minutes).
@@ -123,10 +124,7 @@ async function sendFinishedVisits(db: Db): Promise<SheetResult> {
   if (!sheetId) return { status: "not_configured", sent: 0, message: "GOOGLE_SHEET_ID is not set." };
   try {
     const call = sheetCaller(sheetId, 20_000);
-    const { sheets } = await call("?fields=sheets.properties.title");
-    if (!sheets?.some((s) => s.properties?.title === ACTIVITY_TAB)) {
-      await call(":batchUpdate", "POST", { requests: [{ addSheet: { properties: { title: ACTIVITY_TAB } } }] });
-    }
+    await ensureTab(call, ACTIVITY_TAB);
     const title = await appTitles(db);
     await writeRows(call, ACTIVITY_TAB, VISIT_HEADERS, rows.map((r) => visitRow(r, title)));
     await db.update(appSessions).set({ sheetSyncedAt: new Date() }).where(inArray(appSessions.id, rows.map((r) => r.id)));
@@ -138,11 +136,19 @@ async function sendFinishedVisits(db: Db): Promise<SheetResult> {
   }
 }
 
-export const syncActivity = (db: Db) => oneSheetSendAtATime(() => sendFinishedVisits(db));
+// Finished visits and in-app events together.
+export const syncActivity = (db: Db) => oneSheetSendAtATime(async (): Promise<SheetResult> => {
+  const visits = await sendFinishedVisits(db);
+  const events = await sendNewEvents(db, await appTitles(db));
+  const sent = visits.sent + events.sent;
+  const problem = [visits, events].find((r) => r.status === "failed") ?? [visits, events].find((r) => r.status === "not_configured");
+  if (problem) return { ...problem, sent };
+  return { status: sent ? "sent" : "nothing_to_send", sent };
+});
 
 // Runs in the background, at most every 15 minutes, whenever someone is using the apps.
 let lastSend = 0;
-function sendActivitySoon(db: Db) {
+export function sendActivitySoon(db: Db) {
   if (Date.now() - lastSend < SEND_EVERY_MS) return;
   lastSend = Date.now();
   void quietly(syncActivity(db));

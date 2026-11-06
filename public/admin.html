@@ -103,7 +103,7 @@
         <div class="row">
           <select id="usage-days" aria-label="Period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 12 months</option></select>
           <a class="btn small ghost" id="usage-csv" href="/api/admin/usage.csv?days=30">Download CSV</a>
-          <button class="btn small ghost" id="usage-sync" type="button">Send finished visits to Google Sheet</button>
+          <button class="btn small ghost" id="usage-sync" type="button">Send activity to Google Sheet</button>
           <span class="muted small" id="usage-status"></span>
         </div>
         <p class="muted small">Your own admin account isn't counted. Opens are exact. Time is an estimate: it runs from opening an app to the last time that app checked in with the portal. Each visit reaches the Sheet's "App activity" tab about an hour after it ends.</p>
@@ -111,6 +111,16 @@
         <div class="table-scroll"><table><thead><tr><th>App</th><th>Opens</th><th>Students</th><th>Time</th></tr></thead><tbody id="usage-apps"></tbody></table></div>
         <h2 style="font-size:18px;margin-top:24px">By student</h2>
         <div class="table-scroll"><table><thead><tr><th>Student</th><th>Opens</th><th>Time</th><th>Apps</th><th>Last active</th></tr></thead><tbody id="usage-students"></tbody></table></div>
+        <div class="row" style="margin-top:32px">
+          <h2 style="font-size:18px;margin:0">Exams</h2>
+          <a class="btn small ghost" id="events-csv" href="/api/admin/events.csv?days=30">Download exam and Claude log</a>
+        </div>
+        <p class="muted small">Reported by each app once it has the latest connector. "Stepped away" means the exam page was hidden or closed for 20 seconds or more; the exam clock keeps running.</p>
+        <div class="table-scroll"><table><thead><tr><th>Student</th><th>Exam</th><th>Started</th><th>Ended</th><th>Result</th><th>Score</th><th>Stepped away</th></tr></thead><tbody id="usage-exams"></tbody></table></div>
+        <h2 style="font-size:18px;margin-top:24px">Claude and voice use by app</h2>
+        <div class="table-scroll"><table><thead><tr><th>App</th><th>Used for</th><th>Uses</th><th>Students</th></tr></thead><tbody id="usage-ai-apps"></tbody></table></div>
+        <h2 style="font-size:18px;margin-top:24px">Claude and voice use by student</h2>
+        <div class="table-scroll"><table><thead><tr><th>Student</th><th>Claude</th><th>Voice</th><th>Last used</th></tr></thead><tbody id="usage-ai-students"></tbody></table></div>
       </div>
 
       <!-- Page text -->

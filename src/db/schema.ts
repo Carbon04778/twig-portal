@@ -101,6 +101,27 @@ export const studentProfiles = pgTable("student_profiles", {
   createdAt,
 }, (t) => [index("student_profiles_unsynced").on(t.sheetSyncedAt)]);
 
+// What happened inside an app, as reported by that app: exam steps, Claude and voice use, actions.
+export const appEvents = pgTable("app_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  appId: text("app_id").notNull().references(() => apps.id, { onDelete: "cascade" }),
+  eventId: text("event_id").notNull(), // made by the app, so a retried report isn't counted twice
+  type: text("type").notNull(),
+  attemptRef: text("attempt_ref"), // ties together the events of one exam attempt
+  title: text("title"), // e.g. the paper's name
+  label: text("label"), // e.g. "Follow-up question"
+  score: integer("score"),
+  total: integer("total"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  sheetSyncedAt: timestamp("sheet_synced_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("app_events_once").on(t.appId, t.eventId),
+  index("app_events_when").on(t.occurredAt),
+  index("app_events_unsynced").on(t.sheetSyncedAt),
+]);
+
 // One row per visit to an app. Started when the student opens it from the portal; last_active_at
 // moves on each time the app re-checks access with the portal, which gives the time estimate.
 export const appSessions = pgTable("app_sessions", {

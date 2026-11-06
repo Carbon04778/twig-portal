@@ -7,7 +7,8 @@ import { apps, payments, users } from "../db/schema.js";
 import { adminEmails } from "../env.js";
 import type { IdentityProvider } from "../auth/identity.js";
 import { effectiveRole } from "../lib/access.js";
-import { recordCheckIn, recordOpen } from "../lib/activity.js";
+import { recordCheckIn, recordOpen, sendActivitySoon } from "../lib/activity.js";
+import { eventsBody, recordEvents } from "../lib/events.js";
 import { pageContent } from "../lib/content.js";
 import { confirmWithHitpay, handleWebhook, paymentOffer, startPayment, validWebhookSignature } from "../lib/payment.js";
 import {
@@ -162,4 +163,16 @@ appApi.post("/check", async (req, res) => {
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   if (result.allowed) await recordCheckIn(db, user_id, app_id);
   res.json({ allowed: result.allowed, role: result.role });
+});
+
+// An app reporting what a student did inside it. Reports for someone without access are dropped.
+appApi.post("/events", async (req, res) => {
+  const body = eventsBody.parse(req.body);
+  const result = await checkUserAccess(db, body.app_id, String(req.headers["x-app-secret"] ?? ""), body.user_id);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (result.allowed) {
+    await recordEvents(db, body);
+    sendActivitySoon(db);
+  }
+  res.json({ recorded: result.allowed ? body.events.length : 0 });
 });

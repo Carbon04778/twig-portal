@@ -431,6 +431,114 @@ describe("portal", () => {
     setSheetTransport(async () => Response.json({}));
   });
 
+  test("in-app events: exam steps and Claude use reach the admin panel and the Sheet", async () => {
+    const express = (await import("express")).default;
+    const fake = express();
+    fake.use(express.json());
+    const fakeHttp = fake.listen(0);
+    await new Promise((r) => fakeHttp.once("listening", r));
+    const fakeBase = `http://127.0.0.1:${(fakeHttp.address() as { port: number }).port}`;
+    try {
+      await post("/api/admin/apps", DONNELL, { id: "eventsapp", name: "Events app", url: fakeBase, public_access: true });
+      const secret = (await post("/api/admin/apps/eventsapp/secret", DONNELL, {})).body.data.secret;
+      Object.assign(process.env, { PORTAL_URL: base, PORTAL_APP_ID: "eventsapp", PORTAL_APP_SECRET: secret });
+      const { portalRoutes, portalSession, portalTrack, requirePortalUser } = await import("../connector/portalAuth.js");
+      fake.use(portalSession);
+      fake.use(portalTrack([
+        { match: "POST /api/explain/:id", type: "claude_used", label: "Explanation" },
+        { match: "POST /api/fails", type: "claude_used", label: "Should not count" },
+        { match: "POST /api/tests/:code/join", type: "exam_started", ref: "class-{code}", title: "Class test {code}" },
+      ]));
+      fake.use("/api/portal", portalRoutes);
+      fake.use("/api", requirePortalUser());
+      fake.post("/api/explain/:id", (_req, res) => { res.json({ ok: true }); });
+      fake.post("/api/fails", (_req, res) => { res.status(500).json({}); });
+      fake.post("/api/tests/:code/join", (_req, res) => { res.json({ ok: true }); });
+
+      const cb = await fetch((await call("/launch/eventsapp", AMY)).location!, { redirect: "manual" });
+      const cookie = cb.headers.get("set-cookie")!.split(";")[0]!;
+      const send = (path: string, body: unknown = {}, c: string | null = cookie) => fetch(`${fakeBase}${path}`, {
+        method: "POST", headers: { "content-type": "application/json", ...(c ? { cookie: c } : {}) }, body: JSON.stringify(body),
+      });
+      const rows = async () => (await mod.pool.query("select * from app_events where app_id = 'eventsapp' order by occurred_at, id")).rows;
+      const waitFor = async (n: number) => {
+        for (let i = 0; i < 100 && (await rows()).length < n; i++) await new Promise((r) => setTimeout(r, 20));
+        return rows();
+      };
+
+      // Server-side rules: only successful calls count.
+      await send("/api/explain/1");
+      await send("/api/explain/2");
+      await send("/api/fails");
+      await send("/api/tests/ABC/join");
+      assert.equal((await waitFor(3)).length, 3);
+      const tracked = await rows();
+      assert.ok(tracked.every((r: any) => r.label !== "Should not count"));
+      assert.equal(tracked.find((r: any) => r.type === "exam_started").attempt_ref, "class-ABC");
+
+      // Browser steps: timestamps kept; students can't report Claude use or act signed out.
+      const t = Date.now() - 3_600_000;
+      const iso = (min: number) => new Date(t + min * 60_000).toISOString();
+      for (const e of [
+        { type: "exam_started", ref: "p1:1", title: "ACJC 2026 P1", at: iso(0) },
+        { type: "exam_left", ref: "p1:1", title: "ACJC 2026 P1", at: iso(10) },
+        { type: "exam_returned", ref: "p1:1", title: "ACJC 2026 P1", at: iso(14) },
+        { type: "exam_submitted", ref: "p1:1", title: "ACJC 2026 P1", at: iso(30), score: 22, total: 30 },
+        { type: "exam_started", ref: "p1:2", title: "HCI 2026 P1", at: iso(40) },
+        { type: "exam_quit", ref: "p1:2", title: "HCI 2026 P1", at: iso(45) },
+      ]) assert.equal((await send("/api/portal/events", e)).status, 204);
+      assert.equal((await send("/api/portal/events", { type: "claude_used" })).status, 400, "server only");
+      assert.equal((await send("/api/portal/events", { type: "exam_started", ref: "x" }, null)).status, 401);
+
+      const usage = (await call("/api/admin/usage?days=7", DONNELL)).body;
+      const exam = usage.exams.find((e: any) => e.title === "ACJC 2026 P1");
+      assert.deepEqual([exam.result, exam.score, exam.total, exam.timesAway, exam.minutesAway, exam.student],
+        ["Submitted", 22, 30, 1, 4, "Amy Tan"]);
+      assert.equal(new Date(exam.startedAt).toISOString(), iso(0), "the time it happened, not the time it arrived");
+      assert.equal(new Date(exam.endedAt).toISOString(), iso(30));
+      assert.equal(usage.exams.find((e: any) => e.title === "HCI 2026 P1").result, "Quit");
+      assert.equal(usage.exams.find((e: any) => e.title === "Class test ABC").result, "Not finished");
+      assert.deepEqual(usage.aiByApp.map((a: any) => [a.title, a.label, a.uses, a.students]), [["Events app", "Explanation", 2, 1]]);
+      assert.deepEqual(usage.aiByStudent.map((s: any) => [s.name, s.claude, s.voice]), [["Amy Tan", 2, 0]]);
+
+      // Direct reports: a retry is kept once, a wrong secret or unknown student adds nothing.
+      const amyId = tracked[0].user_id;
+      const direct = (headers: Record<string, string>, userId = amyId) => post("/api/apps/events", null, {
+        app_id: "eventsapp", user_id: userId,
+        events: [{ id: "retry-event-1", type: "action", label: "Generated a paper", at: new Date().toISOString() }],
+      }, headers);
+      assert.equal((await direct({ "x-app-secret": "tps_wrong" })).status, 401);
+      const before = (await rows()).length;
+      assert.equal((await direct({ "x-app-secret": secret })).status, 200);
+      assert.equal((await direct({ "x-app-secret": secret })).status, 200);
+      assert.equal((await rows()).length, before + 1, "same report twice is one row");
+      assert.equal((await direct({ "x-app-secret": secret }, 999_999)).body.recorded, 0);
+
+      // Sheet: its own tab, each event once.
+      const { setSheetTransport } = await import("../src/lib/profile.js");
+      const sheet: { path: string; body: any }[] = [];
+      setSheetTransport(async (p, init) => {
+        sheet.push({ path: p, body: init.body ? JSON.parse(String(init.body)) : null });
+        return p.includes("?fields=") ? Response.json({ sheets: [{ properties: { title: "Sheet1" } }] }) : Response.json({});
+      });
+      process.env.GOOGLE_SHEET_ID = "sheet123";
+      const sent = (await post("/api/admin/usage/sync", DONNELL, {})).body.data;
+      assert.equal(sent.status, "sent");
+      const append = sheet.filter((s) => decodeURIComponent(s.path).includes("'Exams and Claude'!") && s.path.includes(":append"));
+      assert.equal(append.length, 1);
+      const line = append[0]!.body.values.find((r: any[]) => r[6] === "Exam submitted");
+      assert.deepEqual([line[1], line[5], line[7], line[9], line[10]], ["Amy Tan", "Events app", "ACJC 2026 P1", 22, 30]);
+      const csv = String((await call("/api/admin/events.csv?days=7", DONNELL)).body);
+      assert.match(csv, /Stepped away from exam/);
+      assert.equal((await call("/api/admin/events.csv", AMY)).status, 403);
+      assert.equal((await post("/api/admin/usage/sync", DONNELL, {})).body.data.status, "nothing_to_send", "never sent twice");
+      setSheetTransport(async () => Response.json({}));
+    } finally {
+      fakeHttp.close();
+      await post("/api/admin/apps/eventsapp", DONNELL, {}).catch(() => {});
+    }
+  });
+
   test("page text: edited in admin, shown to students, can be restored", async () => {
     const before = await call("/api/admin/content", DONNELL);
     assert.equal(before.body.data.apps.paper1.title, "Prelim MCQ Practice");

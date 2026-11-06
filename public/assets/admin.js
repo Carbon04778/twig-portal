@@ -268,7 +268,25 @@ const duration = (m) => (!m ? "under 5 min" : m < 60 ? `${m} min` : `${Math.floo
 async function loadUsage() {
   const days = $("usage-days").value;
   $("usage-csv").href = `/api/admin/usage.csv?days=${days}`;
-  const { byApp, students, sheetIsSet, sheetWaiting } = await api(`/usage?days=${days}`);
+  $("events-csv").href = `/api/admin/events.csv?days=${days}`;
+  const { byApp, students, sheetIsSet, sheetWaiting, exams, aiByApp, aiByStudent } = await api(`/usage?days=${days}`);
+  $("usage-exams").replaceChildren(...exams.map((e) => el("tr", {},
+    el("td", {}, el("strong", {}, e.student), el("div", { class: "muted small" }, e.email)),
+    el("td", {}, e.title || "Untitled", el("div", { class: "muted small" }, e.appTitle)),
+    el("td", { class: "small" }, dateTime(e.startedAt)),
+    el("td", { class: "small" }, e.endedAt ? dateTime(e.endedAt) : "-"),
+    el("td", {}, e.result),
+    el("td", {}, e.score === null ? "-" : `${e.score}${e.total === null ? "" : ` / ${e.total}`}`),
+    el("td", { class: "small" }, e.timesAway ? `${e.timesAway} time${e.timesAway === 1 ? "" : "s"}, ${duration(e.minutesAway)}` : "No"))));
+  if (!exams.length) $("usage-exams").append(emptyRow(7, "No exams reported in this period."));
+  $("usage-ai-apps").replaceChildren(...aiByApp.map((a) => el("tr", {},
+    el("td", {}, el("strong", {}, a.title)), el("td", {}, a.label || (a.type === "voice_used" ? "Voice" : "Claude")),
+    el("td", {}, String(a.uses)), el("td", {}, String(a.students)))));
+  if (!aiByApp.length) $("usage-ai-apps").append(emptyRow(4, "No Claude or voice use reported in this period."));
+  $("usage-ai-students").replaceChildren(...aiByStudent.map((s) => el("tr", {},
+    el("td", {}, el("strong", {}, s.name), el("div", { class: "muted small" }, s.email)),
+    el("td", {}, String(s.claude)), el("td", {}, String(s.voice)), el("td", { class: "small" }, dateTime(s.lastUsed)))));
+  if (!aiByStudent.length) $("usage-ai-students").append(emptyRow(4, "No Claude or voice use reported in this period."));
   $("usage-status").textContent = !sheetIsSet ? "Google Sheet isn't connected yet." : sheetWaiting ? `${sheetWaiting} visit${sheetWaiting === 1 ? "" : "s"} not in the sheet yet` : "All visits are in the sheet";
   $("usage-apps").replaceChildren(...byApp.map((a) => el("tr", {},
     el("td", {}, el("strong", {}, a.title)), el("td", {}, String(a.opens)), el("td", {}, String(a.students)), el("td", {}, duration(a.minutes)))));
