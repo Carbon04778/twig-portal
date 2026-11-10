@@ -16,6 +16,7 @@ export const usePortalUser = () => useContext(PortalUserContext);
 
 const apiBase = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/portal`;
 export const portalSignOutUrl = `${apiBase}/sign-out`;
+const HEARTBEAT_MS = 5 * 60 * 1000; // matches RECHECK_MS in portalAuth.ts
 
 export function PortalGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PortalUser | null>(null);
@@ -31,6 +32,30 @@ export function PortalGate({ children }: { children: ReactNode }) {
       })
       .catch(() => setFailed(true));
   }, []);
+
+  // Apps whose content is built in (no server calls) still need the portal's re-check: it ends a
+  // revoked user's access and is how the portal estimates time spent. Only while the page is visible.
+  useEffect(() => {
+    if (!user) return;
+    let last = Date.now();
+    const ping = () => {
+      if (document.hidden || Date.now() - last < HEARTBEAT_MS - 1000) return;
+      last = Date.now();
+      fetch(`${apiBase}/me`, { credentials: "same-origin" })
+        .then(async (res) => {
+          if (res.status !== 401) return;
+          const body = await res.json().catch(() => ({}));
+          if (body.portalUrl) window.location.replace(body.portalUrl);
+        })
+        .catch(() => {});
+    };
+    const timer = window.setInterval(ping, HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", ping);
+    };
+  }, [user]);
 
   if (failed) {
     return <p style={{ padding: 24, fontFamily: "system-ui" }}>Couldn't check your Twig sign-in. Please refresh the page.</p>;
