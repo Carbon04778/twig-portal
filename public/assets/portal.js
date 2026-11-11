@@ -98,32 +98,26 @@ function appCard(app, design, { wide = false } = {}) {
   } else {
     card.append(art, el("div", { class: "app-body" },
       el("div", { class: "app-text" }, el("h3", {}, design.title), el("p", {}, design.text)),
-      el("div", { class: "app-foot" }, el("div", { class: "chips" }, ...design.tags.map((t) => el("span", { class: "chip" }, t))), go),
+      el("div", { class: "app-foot" }, el("div", { class: "chips" }, ...(design.tags ?? []).map((t) => el("span", { class: "chip" }, t))), go),
     ));
   }
   return card;
 }
 
-function section(title, note, cards, { wide = false } = {}) {
-  return el("section", { class: "section" },
-    el("div", { class: "section-head" }, el("h2", {}, title), el("p", {}, note)),
-    el("div", { class: `cards${wide ? " one" : ""}` }, ...cards),
-  );
-}
-
 function renderSections(apps, content) {
   const byId = new Map(apps.map((a) => [a.id, a]));
-  const out = [];
+  // One grid of same-size cards, in the sections' order (no headings).
+  const cards = [];
   let extras = 0;
   for (const s of content.sections) {
-    const cards = s.ids.map((id) => byId.get(id)).filter(Boolean).map((a) => {
+    for (const a of s.ids.map((id) => byId.get(id)).filter(Boolean)) {
       const look = APP_DESIGN[a.id] ?? extraDesign(a, extras++);
-      return appCard(a, { ...look, ...content.apps[a.id] }, { wide: s.wide });
-    });
-    if (cards.length) out.push(section(s.title, s.note, cards, { wide: s.wide }));
+      cards.push(appCard(a, { tags: [], ...look, ...content.apps[a.id] }));
+    }
   }
-  if (!out.length) out.push(el("p", { class: "muted" }, "No apps are available yet."));
-  $("sections").replaceChildren(...out);
+  $("sections").replaceChildren(cards.length
+    ? el("div", { class: "cards" }, ...cards)
+    : el("p", { class: "muted" }, "No apps are available yet."));
 }
 
 // ---- Page states -----------------------------------------------------------------------
