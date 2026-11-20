@@ -44,13 +44,17 @@ export const getPaymentSettings = async (db: Db): Promise<PaymentSettings> =>
   ({ ...DEFAULT_PAYMENT, ...await getSetting<Partial<PaymentSettings>>(db, KEY) });
 export const savePaymentSettings = (db: Db, s: PaymentSettings) => putSetting(db, KEY, s);
 
-const apiBase = () => process.env.HITPAY_API_URL?.replace(/\/+$/, "")
-  ?? (process.env.HITPAY_MODE === "live" ? "https://api.hit-pay.com" : "https://api.sandbox.hit-pay.com");
+// Secrets pasted into Replit can carry a stray tab, space or newline (a tab before "live" once
+// sent the live key to HitPay's sandbox). Read them trimmed.
+const env = (name: string) => process.env[name]?.trim() || undefined;
+const isLive = () => env("HITPAY_MODE")?.toLowerCase() === "live";
+const apiBase = () => env("HITPAY_API_URL")?.replace(/\/+$/, "")
+  ?? (isLive() ? "https://api.hit-pay.com" : "https://api.sandbox.hit-pay.com");
 
 export const hitpayStatus = () => ({
-  keyIsSet: !!process.env.HITPAY_API_KEY,
-  webhookSaltIsSet: !!(process.env.HITPAY_WEBHOOK_SALT || process.env.HITPAY_SALT),
-  mode: process.env.HITPAY_MODE === "live" ? "live" : "sandbox",
+  keyIsSet: !!env("HITPAY_API_KEY"),
+  webhookSaltIsSet: !!(env("HITPAY_WEBHOOK_SALT") || env("HITPAY_SALT")),
+  mode: isLive() ? "live" : "sandbox",
 });
 
 export const mayPay = (user: User, now = new Date()) =>
@@ -77,7 +81,7 @@ async function hitpay(path: string, init: RequestInit = {}) {
   const res = await fetch(`${apiBase()}/v1/payment-requests${path}`, {
     ...init,
     signal: AbortSignal.timeout(15_000),
-    headers: { "X-BUSINESS-API-KEY": process.env.HITPAY_API_KEY ?? "", "X-Requested-With": "XMLHttpRequest", ...init.headers },
+    headers: { "X-BUSINESS-API-KEY": env("HITPAY_API_KEY") ?? "", "X-Requested-With": "XMLHttpRequest", ...init.headers },
   });
   const body = await res.json().catch(() => ({})) as Record<string, any>;
   if (!res.ok) throw new Error(`HitPay answered ${res.status}: ${String(body.message ?? "").slice(0, 200)}`);
@@ -160,7 +164,7 @@ export async function confirmWithHitpay(db: Db, p: Payment): Promise<Payment["st
 export function validWebhookSignature(rawBody: Buffer, signature: string | undefined) {
   if (!signature) return false;
   const given = Buffer.from(signature);
-  return [process.env.HITPAY_WEBHOOK_SALT, process.env.HITPAY_SALT].some((salt) => {
+  return [env("HITPAY_WEBHOOK_SALT"), env("HITPAY_SALT")].some((salt) => {
     if (!salt) return false;
     const expected = Buffer.from(crypto.createHmac("sha256", salt).update(rawBody).digest("hex"));
     return expected.length === given.length && crypto.timingSafeEqual(expected, given);
